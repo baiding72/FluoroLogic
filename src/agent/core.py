@@ -1,56 +1,78 @@
 import os
-from typing import Literal
-from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_agent  # LangChain 1.0 新接口
-from langgraph.checkpoint.memory import MemorySaver
+from typing import Annotated
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
 
-# 1. 导入您的工具 (稍后实现)
-# from src.tools.electronic import analyze_electronic_effect
-# from src.tools.steric import analyze_steric_effect
-# from src.tools.retrieval import search_knowledge_base
+# 导入你的工具
+from src.tools.electronic import check_hammett
+from src.tools.retrieval import query_bodi_database
+from src.agent.model_factory import ModelFactory
+from src.tools.structure import analyze_structural_reorganization
+from src.tools.retrieval import query_bodi_database
 
-# 暂时定义一个 Mock 工具用于测试架构
-@tool
-def mock_hammett_calculator(smiles: str):
-    """计算分子的 Hammett 常数总和"""
-    return "Meso-position sum: 0.78 (Electron Withdrawing)"
+# 1. 定义状态 (State)
+# LangGraph 需要定义一个状态对象，这里我们只存储消息列表
+class AgentState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
 
-# 2. 初始化 LLM
-llm = ChatOpenAI(
-    model="gpt-4o", 
-    temperature=0.2,
-    api_key=os.getenv("OPENAI_API_KEY")
-)
+# 2. 准备 LLM 和 工具
+# 这里记得去 .env 检查一下你的 CURRENT_MODEL 是什么
+# 建议先用 API (qwen_pro) 测试，因为 Ollama 可能第一次调用 tool 会失败
+llm = ModelFactory.get_model(os.getenv("CURRENT_MODEL", "qwen_pro"), temperature=0)
 
-# 3. 定义工具列表
-tools = [mock_hammett_calculator]
+tools = [check_hammett, analyze_structural_reorganization, query_bodi_database]
+llm_with_tools = llm.bind_tools(tools) # 这一步是关键，把工具绑定到模型
 
-# 4. 构建 Agent (LangChain 1.0 风格)
-# 1.0 版本中 create_agent 自动处理了 ToolNode 和 ModelNode 的连接
-agent_executor = create_agent(
-    llm,
-    tools,
-    checkpointer=MemorySaver(), # 原生支持记忆
-    system_prompt="""
-    你是由 LangChain 1.0 驱动的 BodiMechanist。
+# 3. 定义节点 (Nodes)
+def reasoner_node(state: AgentState):
+    """思考节点：LLM 决定是说话还是调用工具"""
+    return {"messages": [llm_with_tools.invoke(state["messages"])]}
+
+# 4. 构建图 (Graph)
+workflow = StateGraph(AgentState)
+
+# 添加节点
+workflow.add_node("agent", reasoner_node)
+workflow.add_node("tools", ToolNode(tools)) # LangGraph 内置的工具执行节点
+
+# 添加边 (Edges)
+workflow.add_edge(START, "agent")
+# 关键逻辑：agent 节点执行完后，检查是否需要调用工具
+# 如果 LLM 返回 tool_calls，则跳转到 "tools" 节点，否则跳转到 END
+workflow.add_conditional_edges("agent", tools_condition)
+workflow.add_edge("tools", "agent") # 工具执行完，结果返回给 agent 继续思考
+
+# 编译图
+app = workflow.compile()
+
+# 5. 运行测试函数
+def run_interactive():
+    print("🧪 BodiMechanist Initialized. Type 'quit' to exit.")
+    print(f"🤖 Brain: {os.getenv('CURRENT_MODEL')} | 🛠️ Tools: Electronic, Retrieval")
     
-    你的核心原则：
-    1. 机理驱动：必须通过 Hammett 效应和空间位阻来解释电位。
-    2. 数据验证：所有设计建议必须经过数据库检索验证。
-    """
-)
-
-# 5. 测试运行函数
-def run_agent(user_input: str, thread_id: str = "1"):
-    config = {"configurable": {"thread_id": thread_id}}
-    
-    # LangGraph 的流式输出
-    for chunk in agent_executor.stream(
-        {"messages": [("user", user_input)]}, 
-        config
-    ):
-        print(chunk)
+    while True:
+        user_input = input("\nUser: ")
+        if user_input.lower() in ["quit", "exit"]:
+            break
+            
+        # 流式输出
+        inputs = {"messages": [HumanMessage(content=user_input)]}
+        for event in app.stream(inputs, stream_mode="values"):
+            # 打印最后一条消息
+            last_message = event["messages"][-1]
+            last_content = last_message.content
+            
+            # 简单的打印美化
+            if last_message.type == "ai":
+                if not last_content and last_message.tool_calls:
+                    print(f"🤖 (Calling Tool): {last_message.tool_calls[0]['name']}")
+                else:
+                    print(f"🤖 BodiMechanist: {last_content}")
+            elif last_message.type == "tool":
+                print(f"🔧 Tool Output: {last_content[:100]}...") # 只打印前100字
 
 if __name__ == "__main__":
-    run_agent("BODIPY 分子在 meso 位引入硝基会有什么影响？")
+    run_interactive()
