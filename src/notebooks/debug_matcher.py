@@ -1,5 +1,6 @@
 import sys
 from rdkit import Chem
+from rdkit.Chem import Draw
 
 class BodipyScaffoldMatcher:
     """
@@ -118,6 +119,11 @@ def debug_smiles(smiles):
         print("❌ Invalid SMILES string. RDKit could not parse it.")
         return
 
+    for atom in mol.GetAtoms():
+        atom.SetProp('molAtomMapNumber', str(atom.GetIdx()))
+    img = Draw.MolToImage(mol, size=(500, 500))
+    img.save("molecule_with_index.png")
+
     matcher = BodipyScaffoldMatcher()
     
     # 步骤 1: 骨架匹配
@@ -145,7 +151,7 @@ if __name__ == "__main__":
     # 你的出错分子:
     # [B-]1([N+]2=C(C=C(C2=C(C(=O)Cc2c([N+](=O)[O-])cc(cc2)[N+](=O)[O-])c2n1c(cc2C)/C=C/c1ccc(OCCOCCOCCOC)cc1)C)/C=C/c1ccc(OCCOCCOCCOC)cc1)(F)F
     
-    user_input = "CC1=CC(/C=C/C2=CC=C(C=O)C=C2)=[N+]2C1=C(C1=CC=C(N(=O)=O)C=C1)C1=C(C)C=C(/C=C/C3=CC=CC=C3)N1[B-]2(F)F"
+    user_input = "[N-]=[N+]=NCCOc1ccc(/C=C/c2ccc3n2[B-](F)(F)[n+]2c4n(c5ccccc52)[B-](F)(F)[N+]2=CC=CC2=C34)cc1"
     if user_input:
         debug_smiles(user_input)
     
