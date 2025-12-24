@@ -1,8 +1,5 @@
 import sys
-from rdkit import Chem
-from rdkit.Chem import rdMolTransforms
-
-import sys
+import re
 from enum import Enum
 from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
@@ -11,132 +8,109 @@ from rdkit.Chem import rdMolTransforms
 
 class HybridizationType(str, Enum):
     """原子杂化方式枚举"""
-    SP3 = "sp3"         # 四配位，四面体构型 (如: 甲基 -CH3)
-    SP2 = "sp2"         # 三配位，平面三角形 (如: 苯环, 羰基, 烯烃)
-    SP = "sp"           # 二配位，直线型 (如: 炔烃)
-    S = "s"             # 氢原子
-    UNKNOWN = "unknown" # 未知或判定失败
+    SP3 = "sp3"         
+    SP2 = "sp2"         
+    SP = "sp"           
+    S = "s"             
+    UNKNOWN = "unknown" 
 
 class ConnectionType(str, Enum):
     """Meso 位连接基团类型枚举"""
-    HYDROGEN = "hydrogen"         # 连接的是氢原子
-    ALKYL = "alkyl"               # 烷基 (如: Methyl, Ethyl, Cyclohexyl)，通常无共轭
-    ARYL = "aryl"                 # 芳基 (如: Phenyl)，主要共轭来源
-    CONJUGATED = "conjugated"     # 非芳香性的共轭链 (如: Alkenyl, Carbonyl)
-    ALKYNYL = "alkynyl"           # 炔基 (直线型)
-    HETEROATOM = "heteroatom"     # 杂原子 (如: N, O, S, F, Cl)，涉及孤对电子共轭
-    UNKNOWN = "unknown"           # 无法识别
+    HYDROGEN = "hydrogen"       # 氢原子 
+    ALKYL = "alkyl"             # 烃基
+    ARYL = "aryl"               # 芳香基
+    CONJUGATED = "conjugated"   # 共轭基团
+    ALKYNYL = "alkynyl"         # 炔基
+    HETEROATOM = "heteroatom"   # 杂原子基团
+    UNKNOWN = "unknown"         # 未知
+
+class BoronType(str, Enum):
+    """Boron 连接基团类型枚举"""
+    STANDARD_BF2 = "Standard_BF2"  # 标准BF2结构
+    MODIFIED = "Modified"          # 其他
+    UNKNOWN = "Unknown"            # 未知
+
 
 # ===========================================
 
 class BodipyScaffoldMatcher:
     """
-    BODIPY 骨架与取代基分析器
-    [升级版] 集成 N-B-N 闭环验证，精准识别单体，排除二聚体干扰。
+    BODIPY 骨架与取代基分析器 (全能版)
     """
     def __init__(self):
-        # 1. 核心模式：Meso碳 连接两个 5元环 (C-C-C-C-N)
-        # 这是一个"开放式"的配体骨架，还没限制 B 的连接
+        # 核心 SMARTS: Meso(0) 连接两个吡咯环
+        # 索引定义 (用于 ReplaceCore 归类):
+        # 0: Meso
+        # 1, 6: Alpha
+        # 2, 3, 7, 8: Beta
+        # 5, 10: N
         self.smarts_str = "[#6](~[#6]1~[#6]~[#6]~[#6]~[#7]1)(~[#6]1~[#6]~[#6]~[#6]~[#7]1)"
         self.core_smarts = Chem.MolFromSmarts(self.smarts_str)
 
     def analyze(self, mol):
         """
-        分析分子，返回 (是否匹配成功, 骨架信息字典)。
-        包含 N-B-N 拓扑验证。
+        骨架识别与 N-B-N 验证
         """
-        if not mol or not self.core_smarts:
-            return False, None
-
-        # 1. 骨架初筛 (找到 dipyrromethene 配体核心)
+        if not mol or not self.core_smarts: return False, None
         try:
             matches = mol.GetSubstructMatches(self.core_smarts)
         except:
             return False, None
-            
-        if not matches:
-            return False, None
-        
-        # 2. 遍历所有匹配，寻找符合 N-B-N 闭环的那个
-        # (二聚体可能有多个 match，比如桥碳和真 Meso 碳，我们需要过滤)
+        if not matches: return False, None
+
+        # N-B-N 闭环验证
         valid_match = None
-        
         for match in matches:
-            # SMARTS 索引映射:
-            # 0: Meso
-            # 5: N1 (左环)
-            # 10: N2 (右环)
             n1_idx = match[5]
             n2_idx = match[10]
-            
             n1_atom = mol.GetAtomWithIdx(n1_idx)
             n2_atom = mol.GetAtomWithIdx(n2_idx)
             
-            # === 核心验证：N1 和 N2 必须连接到同一个 B ===
+            common_nbrs = set([x.GetIdx() for x in n1_atom.GetNeighbors()]).intersection(
+                          set([x.GetIdx() for x in n2_atom.GetNeighbors()]))
+            
             common_boron = None
-            
-            # 找 N1 的邻居
-            n1_nbrs = [x.GetIdx() for x in n1_atom.GetNeighbors()]
-            # 找 N2 的邻居
-            n2_nbrs = [x.GetIdx() for x in n2_atom.GetNeighbors()]
-            
-            # 求交集
-            common_nbrs = set(n1_nbrs).intersection(set(n2_nbrs))
-            
             for idx in common_nbrs:
-                atom = mol.GetAtomWithIdx(idx)
-                if atom.GetAtomicNum() == 5: # 5 = Boron
+                if mol.GetAtomWithIdx(idx).GetAtomicNum() == 5: # Boron
                     common_boron = idx
                     break
             
             if common_boron is not None:
-                # 找到了！这就是我们要的真 BODIPY 骨架
-                # 即使分子有其他硼，只要这个骨架闭环了，就是合法的
                 valid_match = match
                 break
         
         if valid_match is None:
-            # 虽然匹配到了 C-吡咯-吡咯，但 N 没有被 B 锁住
-            # 可能是二聚体的桥碳，或者是未配位的配体
             return False, {"error": "no_N_B_N_bridge"}
-            
-        # 3. 组装结果
+
         match = valid_match
         scaffold_info = {
             "meso_idx": match[0],
             "alpha_indices": [match[1], match[6]], 
             "beta_indices": [match[2], match[3], match[7], match[8]], 
             "nitrogen_indices": [match[5], match[10]],
-            "boron_idx": common_boron, # 顺便存下 B 的位置
+            "boron_idx": common_boron,
             "all_core_indices": set(match)
         }
-        
         return True, scaffold_info
 
     def analyze_meso_structure(self, mol, scaffold_info):
-        """
-        [逻辑修正版] 深度分析 Meso 位结构
-        修复了空锚点判定和显式氢原子的归类问题
-        """
+        """深度分析 Meso 位物理结构 (杂化、二面角)"""
         if not scaffold_info: return None
         
         meso_idx = scaffold_info['meso_idx']
         meso_atom = mol.GetAtomWithIdx(meso_idx)
         core_indices = scaffold_info['all_core_indices']
         
-        # 1. 寻找锚点原子 (Anchor Atom)
         anchor_atom = None
         for nbr in meso_atom.GetNeighbors():
             if nbr.GetIdx() not in core_indices:
                 anchor_atom = nbr
                 break
         
-        # === 情况 A: 异常 - 没有找到锚点原子 ===
-        # 在全显式氢模型下，如果找不到邻居，说明结构缺失或异常，不能默认为 H
         if anchor_atom is None:
             return {
                 "exists": False,
-                "connection_type": ConnectionType.UNKNOWN.value, # 修正：标记为未知
+                "connection_type": ConnectionType.UNKNOWN.value,
                 "hybridization": HybridizationType.UNKNOWN.value,
                 "is_conjugated": False,
                 "dihedral_angle": None,
@@ -146,19 +120,16 @@ class BodipyScaffoldMatcher:
         anchor_idx = anchor_atom.GetIdx()
         atomic_num = anchor_atom.GetAtomicNum()
 
-        # === 情况 B: 显式氢原子 (Meso-H) ===
-        # 必须在判断杂原子之前先排除 H
         if atomic_num == 1:
             return {
                 "exists": True,
-                "connection_type": ConnectionType.HYDROGEN.value, # 正确归类
+                "connection_type": ConnectionType.HYDROGEN.value,
                 "hybridization": HybridizationType.S.value,
                 "is_conjugated": False,
                 "dihedral_angle": None,
                 "anchor_idx": anchor_idx
             }
         
-        # === 情况 C: 真正的杂原子 (N, O, S, F, Cl...) ===
         if atomic_num != 6:
             return {
                 "exists": True,
@@ -170,35 +141,23 @@ class BodipyScaffoldMatcher:
                 "anchor_idx": anchor_idx
             }
 
-        # === 情况 D: 碳原子 (需要区分 Alkyl vs Aryl/Carbonyl) ===
         degree = anchor_atom.GetDegree()
-        
         conn_type = ConnectionType.UNKNOWN
         hyb_type = HybridizationType.UNKNOWN
         calc_dihedral = False
         
         if degree == 4:
-            # sp3 -> 烷基
             conn_type = ConnectionType.ALKYL
             hyb_type = HybridizationType.SP3
-            calc_dihedral = False
-            
         elif degree == 3:
-            # sp2 -> 芳基 或 共轭链
-            if anchor_atom.IsInRing():
-                conn_type = ConnectionType.ARYL
-            else:
-                conn_type = ConnectionType.CONJUGATED
+            if anchor_atom.IsInRing(): conn_type = ConnectionType.ARYL
+            else: conn_type = ConnectionType.CONJUGATED
             hyb_type = HybridizationType.SP2
             calc_dihedral = True
-            
         elif degree == 2:
-            # sp -> 炔基
             conn_type = ConnectionType.ALKYNYL
             hyb_type = HybridizationType.SP
-            calc_dihedral = False
-            
-        # 计算二面角
+
         angle_val = None
         if calc_dihedral:
             angle_val = self._compute_dihedral_value(mol, scaffold_info, anchor_idx)
@@ -213,34 +172,100 @@ class BodipyScaffoldMatcher:
         }
 
     def _compute_dihedral_value(self, mol, scaffold_info, anchor_idx):
-        """内部工具：计算几何角度"""
         try:
-            # 4个原子: Core_Ref -> Meso -> Anchor -> Anchor_Ref
             idx_meso = scaffold_info['meso_idx']
             idx_core_ref = scaffold_info['alpha_indices'][0]
-            
-            # 寻找 Anchor 的参考邻居 (重原子优先)
             anchor_atom = mol.GetAtomWithIdx(anchor_idx)
             idx_anchor_ref = None
             for nbr in anchor_atom.GetNeighbors():
                 if nbr.GetIdx() != idx_meso and nbr.GetAtomicNum() > 1:
                     idx_anchor_ref = nbr.GetIdx()
                     break
-            
-            # 如果没有重原子邻居 (比如甲醛基 -CH=O 的 H，或者奇怪的结构)，降级用 H
-            if idx_anchor_ref is None:
+            if idx_anchor_ref is None: # 降级用H
                 for nbr in anchor_atom.GetNeighbors():
                     if nbr.GetIdx() != idx_meso:
                         idx_anchor_ref = nbr.GetIdx()
                         break
-            
             if idx_anchor_ref is None: return None
             
             conf = mol.GetConformer()
             angle = rdMolTransforms.GetDihedralDeg(conf, idx_core_ref, idx_meso, anchor_idx, idx_anchor_ref)
             angle = abs(angle)
-            while angle > 90:
-                angle = abs(180 - angle)
+            while angle > 90: angle = abs(180 - angle)
             return round(angle, 1)
         except:
             return None
+
+    def extract_substituents(self, mol):
+        """
+        利用 Chem.ReplaceCore 一次性提取所有位点的取代基 SMILES
+        """
+        if not mol or not self.core_smarts: return None
+
+        # 1. 切除母核
+        try:
+            side_chains = Chem.ReplaceCore(mol, self.core_smarts, labelByIndex=True)
+        except:
+            return None
+            
+        if not side_chains:
+            return {"meso": "[H]", "alpha": [], "beta": [], "boron_fragment": None}
+
+        # 2. 分离碎片
+        frags = Chem.GetMolFrags(side_chains, asMols=True, sanitizeFrags=False)
+        
+        results = {
+            "meso": "[H]", 
+            "alpha": [],
+            "beta": [],
+            "boron_fragment": None
+        }
+        
+        for frag in frags:
+            # 获取 SMILES，此时连接点是带编号的 dummy atom，如 [1*]
+            raw_smiles = Chem.MolToSmiles(frag, canonical=True)
+            
+            # 标准化 SMILES: 将 [1*], [10*] 等统一替换为 *，方便 Hammett 查表
+            clean_smiles = re.sub(r'\[\d+\*\]', '*', raw_smiles)
+
+            # 确定该碎片连接的位置 (根据 Dummy Atom 的 Isotope)
+            attachment_points = []
+            for atom in frag.GetAtoms():
+                if atom.GetAtomicNum() == 0:
+                    attachment_points.append(atom.GetIsotope())
+            
+            if not attachment_points: continue
+
+            for core_idx in attachment_points:
+                if core_idx == 0:
+                    results["meso"] = clean_smiles
+                elif core_idx in [1, 6]:
+                    results["alpha"].append(clean_smiles)
+                elif core_idx in [2, 3, 7, 8]:
+                    results["beta"].append(clean_smiles)
+                elif core_idx in [5, 10]:
+                    # === 针对 Boron 碎片的特殊处理 ===
+                        # 标准 BF2 的 SMILES 通常含有 B 和 F
+                        # RDKit 生成的 clean_smiles 可能是 "FB(F)" 或 "*B(*)(F)F" 等变体
+                        # 我们这里不做过度清洗，原样返回，交由后续分析
+                        results["boron_fragment"] = clean_smiles
+        
+        # === 新增：归一化 Boron 状态 ===
+        # 检查是否为标准 BF2
+        b_frag = results["boron_fragment"]
+        if b_frag:
+            # 简单启发式：如果有 B 且 F 的数量 >= 2，且没有 C, N, O 等重原子
+            # (注意：SMILES 里的 * 不算重原子)
+            has_b = 'B' in b_frag
+            f_count = b_frag.count('F')
+            has_other_heavy = any(c in b_frag for c in ['C', 'c', 'N', 'n', 'O', 'o'])
+            
+            if has_b and f_count == 2 and not has_other_heavy:
+                # 标记为标准类型，方便人类阅读，也方便 Agent 快速理解
+                results["boron_type"] = BoronType.STANDARD_BF2.value
+            else:
+                results["boron_type"] = BoronType.MODIFIED.value
+        else:
+             results["boron_type"] = BoronType.NONE.value
+        
+        return results

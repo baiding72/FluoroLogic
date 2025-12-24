@@ -4,6 +4,7 @@ import pandas as pd
 import cclib
 import numpy as np
 from rdkit import Chem
+from rdkit.Chem import rdMolTransforms
 
 try:
     from src.utils.chem_utils import BodipyScaffoldMatcher
@@ -43,18 +44,15 @@ class DataIntegrator:
         return meta
 
     def _build_mol_from_coords(self, atom_nos, coords):
-        """手动构建分子拓扑，确保显式氢存在以计算配位数"""
         mol = Chem.RWMol()
         for atomic_num in atom_nos:
             atom = Chem.Atom(int(atomic_num))
-            atom.SetNoImplicit(True) # 显式处理，不自动加氢
+            atom.SetNoImplicit(True)
             mol.AddAtom(atom)
-            
         conf = Chem.Conformer(mol.GetNumAtoms())
         for i, (x, y, z) in enumerate(coords):
             conf.SetAtomPosition(i, (float(x), float(y), float(z)))
         mol.AddConformer(conf)
-        
         num_atoms = mol.GetNumAtoms()
         for i in range(num_atoms):
             for j in range(i + 1, num_atoms):
@@ -70,11 +68,8 @@ class DataIntegrator:
             data = cclib.io.ccopen(file_path).parse()
             energy_ev = data.scfenergies[-1]
             mol = self._build_mol_from_coords(data.atomnos, data.atomcoords[-1])
-            
-            # 必须调用 FindRings，否则 IsInRing() 判断会失效
             try: Chem.FastFindRings(mol)
             except: pass
-            
             return {"energy": energy_ev, "mol": mol}
         except Exception as e:
             return None
@@ -92,50 +87,61 @@ class DataIntegrator:
             
             neu_res = self._parse_log_structure(neu_path)
             red_res = self._parse_log_structure(red_path)
-            
-            if not neu_res or not red_res:
-                continue
+            if not neu_res or not red_res: continue
 
-            # 1. 骨架识别 (在中性态上进行化学结构分析)
+            # 1. 骨架识别
             is_bodipy, scaffold = self.matcher.analyze(neu_res['mol'])
             
-            # 2. 结构化位点分析 (Substituent Analysis)
-            # 默认初始化为空结构
-            substituents_info = {
-                "meso": None,
-                "alpha": None, # 预留
-                "beta": None   # 预留
+            # 2. 取代基提取 (化学语义)
+            substituents_dict = {
+                "meso": {"smiles": "[H]", "structure": None},
+                "alpha": [],
+                "beta": [],
+                "boron_fragment": None
             }
             
-            # 提取 Meso 结构信息 (类型、杂化、二面角)
-            meso_analysis = None
-            if is_bodipy and scaffold:
-                meso_analysis = self.matcher.analyze_meso_structure(neu_res['mol'], scaffold)
-                substituents_info["meso"] = meso_analysis
+            is_dimer = False
+            if not is_bodipy and scaffold and scaffold.get("error") == "no_N_B_N_bridge":
+                # N-B-N 检查失败，可能是二聚体
+                # 这里简单标记，不再深入提取
+                is_dimer = True
+            
+            # 仅当是标准 BODIPY 时进行详细提取
+            if is_bodipy:
+                # A. 提取所有 SMILES
+                extracted_subs = self.matcher.extract_substituents(neu_res['mol'])
+                if extracted_subs:
+                    # 填入基础 SMILES
+                    substituents_dict["alpha"] = extracted_subs["alpha"]
+                    substituents_dict["beta"] = extracted_subs["beta"]
+                    substituents_dict["boron_fragment"] = extracted_subs["boron_fragment"]
+                    substituents_dict["boron_type"] = extracted_subs["boron_type"]
+                    substituents_dict["meso"]["smiles"] = extracted_subs["meso"]
 
-            # 3. 还原态构象分析 (仅用于计算重组能)
-            # 我们需要重新在还原态上跑一遍 analyze 以获取当时的二面角
-            red_dihedral = None
-            if is_bodipy and meso_analysis and meso_analysis['is_conjugated']:
-                 # 只有当 Meso 是共轭连接时，计算还原态二面角才有意义
-                 # 需要重新匹配骨架，因为原子索引在不同 Log 文件中可能一致，但也可能微变(虽然通常Gaussian保持顺序)
-                 # 保险起见，我们假设原子顺序一致，直接用 scaffold 的索引
-                 # 如果不一致，需要对 red_mol 重新做 matcher.analyze
-                 red_angle_val = self.matcher._compute_dihedral_value(
-                     red_res['mol'], scaffold, meso_analysis['anchor_idx']
-                 )
-                 red_dihedral = red_angle_val
+                # B. 提取 Meso 物理结构 (连接类型、二面角)
+                if scaffold:
+                    meso_struct = self.matcher.analyze_meso_structure(neu_res['mol'], scaffold)
+                    substituents_dict["meso"]["structure"] = meso_struct
+                    
+                    # C. 计算还原态二面角 (如果 Meso 是共轭的)
+                    red_dihedral = None
+                    if meso_struct and meso_struct['is_conjugated']:
+                        red_dihedral = self.matcher._compute_dihedral_value(
+                             red_res['mol'], scaffold, meso_struct['anchor_idx']
+                        )
+            else:
+                # 非 BODIPY，保持默认空值
+                red_dihedral = None
 
-            # 4. 计算指标
+            # 能量与重组
             neu_E = neu_res['energy']
             red_E = red_res['energy']
             delta_E = red_E - neu_E 
             
-            neu_dihedral = meso_analysis['dihedral_angle'] if meso_analysis else None
+            neu_dihedral = substituents_dict["meso"]["structure"]["dihedral_angle"] if (is_bodipy and substituents_dict["meso"]["structure"]) else None
             
             delta_dihedral = None
             reorg_type = "Rigid/Unknown"
-            
             if neu_dihedral is not None and red_dihedral is not None:
                 delta_dihedral = round(red_dihedral - neu_dihedral, 1)
                 if abs(red_dihedral) < abs(neu_dihedral) - 5: reorg_type = "Flattening"
@@ -145,10 +151,11 @@ class DataIntegrator:
             entry = {
                 "id": mol_id,
                 "is_bodipy": is_bodipy,
+                "is_dimer": is_dimer,
                 "smiles": meta_info['smiles'],
                 
-                # === 新增结构化字段 ===
-                "substituents": substituents_info,
+                # === 核心数据结构 ===
+                "substituents": substituents_dict,
                 # ===================
 
                 "potential_info": {
@@ -159,15 +166,8 @@ class DataIntegrator:
                     "abs_max_nm": meta_info['abs_max_nm']
                 },
                 "states": {
-                    "neutral": {
-                        "energy_ev": round(neu_E, 4), 
-                        # 如果没有共轭二面角，这里就是 None，合理
-                        "dihedral_angle": neu_dihedral 
-                    },
-                    "reduced": {
-                        "energy_ev": round(red_E, 4), 
-                        "dihedral_angle": red_dihedral
-                    }
+                    "neutral": { "energy_ev": round(neu_E, 4), "dihedral_angle": neu_dihedral },
+                    "reduced": { "energy_ev": round(red_E, 4), "dihedral_angle": red_dihedral }
                 },
                 "reorganization_metrics": {
                     "delta_dihedral": delta_dihedral,
