@@ -6,12 +6,9 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
 
-# === 引入我们新建的通用工具 ===
-# 确保在项目根目录运行，或者将 src 加入 PYTHONPATH
 try:
     from src.utils.chem_utils import BodipyScaffoldMatcher
 except ImportError:
-    # 简单的 fallback，方便直接运行脚本测试
     import sys
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
     from src.utils.chem_utils import BodipyScaffoldMatcher
@@ -25,10 +22,9 @@ OUTPUT_JSON = "data/processed/molecules.json"
 class DataIntegrator:
     def __init__(self):
         self.metadata = self._load_metadata()
-        self.matcher = BodipyScaffoldMatcher() # 初始化一次即可复用
+        self.matcher = BodipyScaffoldMatcher()
         
     def _load_metadata(self):
-        """加载 CSV 并处理空值"""
         if not os.path.exists(CSV_PATH):
             raise FileNotFoundError(f"CSV file not found at {CSV_PATH}")
         
@@ -49,7 +45,6 @@ class DataIntegrator:
         return meta
 
     def _build_mol_from_coords(self, atom_nos, coords):
-        """手动构建分子拓扑"""
         mol = Chem.RWMol()
         for atomic_num in atom_nos:
             atom = Chem.Atom(int(atomic_num))
@@ -72,7 +67,6 @@ class DataIntegrator:
         return mol.GetMol()
 
     def _parse_log_structure(self, file_path):
-        """解析 Log"""
         try:
             data = cclib.io.ccopen(file_path).parse()
             energy_ev = data.scfenergies[-1]
@@ -82,34 +76,28 @@ class DataIntegrator:
             return None
 
     def _calculate_dihedral(self, mol_3d, mol_id="Unknown"):
-        """
-        利用 BodipyScaffoldMatcher 计算二面角
-        逻辑极其简洁：只需调用通用工具
-        """
         if not mol_3d: return None
 
-        # 1. 识别骨架
-        scaffold = self.matcher.analyze(mol_3d)
-        if not scaffold:
+        # 1. 识别骨架 (获取返回值 tuple)
+        is_match, scaffold = self.matcher.analyze(mol_3d)
+        
+        if not is_match or not scaffold:
             # print(f"    [Debug] {mol_id}: Not a valid BODIPY scaffold.")
             return None
             
-        # 2.以此骨架获取测角所需的4个原子
+        # 2. 获取测角原子
         target_atoms = self.matcher.get_dihedral_atoms(mol_3d, scaffold)
         
         if target_atoms:
             try:
                 conf = mol_3d.GetConformer()
                 angle = rdMolTransforms.GetDihedralDeg(conf, *target_atoms)
-                
-                # 归一化 (0-90)
                 angle = abs(angle)
                 while angle > 90:
                     angle = abs(180 - angle)
                 return round(angle, 1)
             except:
                 return None
-        
         return None
 
     def process_all(self):
@@ -129,10 +117,11 @@ class DataIntegrator:
             if not neu_res or not red_res:
                 print(f"  -> Parse failed for {mol_id}")
                 continue
-            
-            if mol_id == 'BNP_CHO':
-                print(f"  -> Debugging {mol_id}")
 
+            # === 新增：检测是否为 BODIPY (使用中性态判断) ===
+            is_bodipy, _ = self.matcher.analyze(neu_res['mol'])
+            
+            # 计算二面角 (内部也会调用 analyze，但为了代码解耦，这里重复调用一次无伤大雅)
             neu_angle = self._calculate_dihedral(neu_res['mol'], f"{mol_id}_neu")
             red_angle = self._calculate_dihedral(red_res['mol'], f"{mol_id}_red")
             
@@ -146,13 +135,13 @@ class DataIntegrator:
             
             if neu_angle is not None and red_angle is not None:
                 delta_dihedral = round(red_angle - neu_angle, 1)
-                # 判定重组类型
                 if abs(red_angle) < abs(neu_angle) - 5: reorg_type = "Flattening"
                 elif abs(red_angle) > abs(neu_angle) + 5: reorg_type = "Twisting"
                 else: reorg_type = "Rigid"
             
             entry = {
                 "id": mol_id,
+                "is_bodipy": is_bodipy, # === 新增字段 ===
                 "smiles": meta_info['smiles'],
                 "potential_info": {
                     "dft_potential_csv_V": meta_info['dft_potential_csv'],
