@@ -44,23 +44,49 @@ class DataIntegrator:
         return meta
 
     def _build_mol_from_coords(self, atom_nos, coords):
+        """
+        [智能版] 基于共价半径构建分子拓扑
+        解决 C-I 键过长但 H...H 非键距离过短的冲突
+        """
         mol = Chem.RWMol()
+        pt = Chem.GetPeriodicTable() # 获取元素周期表工具
+        
+        # 1. 添加原子
         for atomic_num in atom_nos:
             atom = Chem.Atom(int(atomic_num))
             atom.SetNoImplicit(True)
             mol.AddAtom(atom)
+            
+        # 2. 设置坐标
         conf = Chem.Conformer(mol.GetNumAtoms())
         for i, (x, y, z) in enumerate(coords):
             conf.SetAtomPosition(i, (float(x), float(y), float(z)))
         mol.AddConformer(conf)
+        
+        # 3. 智能连键
         num_atoms = mol.GetNumAtoms()
+        
+        # 预先获取所有原子的共价半径，避免循环内重复调用
+        radii = [pt.GetRcovalent(int(n)) for n in atom_nos]
+        
         for i in range(num_atoms):
             for j in range(i + 1, num_atoms):
                 pos_i = coords[i]
                 pos_j = coords[j]
                 dist = np.linalg.norm(pos_i - pos_j)
-                if 0.4 < dist < 1.85: 
+                
+                # 获取两原子的共价半径之和
+                # RDKit 的 Rcovalent 单位是埃 (Angstrom)
+                sum_radii = radii[i] + radii[j]
+                
+                # 判定标准：
+                # 1. 下限 0.4: 防止原子重合导致的错误
+                # 2. 上限: 半径之和 + 0.35 Å 的容差 (Tolerance)
+                #    对于 C-I (0.76 + 1.33 = 2.09)，加上 0.35 = 2.44，足以覆盖 2.14 的键长
+                #    对于 H...H (0.32 + 0.32 = 0.64)，加上 0.35 = 0.99，远小于常见的非键距离(>1.6)
+                if 0.4 < dist < (sum_radii + 0.35):
                     mol.AddBond(i, j, Chem.BondType.SINGLE)
+                    
         return mol.GetMol()
 
     def _parse_log_structure(self, file_path):
@@ -88,6 +114,15 @@ class DataIntegrator:
             neu_res = self._parse_log_structure(neu_path)
             red_res = self._parse_log_structure(red_path)
             if not neu_res or not red_res: continue
+
+            if mol_id == "BE_I":
+                print("Debug Breakpoint")
+
+            if mol_id == "BE_Br":
+                print("Debug Breakpoint")
+
+            if mol_id == "BE_F":
+                print("Debug Breakpoint")
 
             # 1. 骨架识别
             is_bodipy, scaffold = self.matcher.analyze(neu_res['mol'])

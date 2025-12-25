@@ -229,26 +229,27 @@ class BodipyScaffoldMatcher:
             clean_smiles = re.sub(r'\[\d+\*\]', '*', raw_smiles)
 
             # 确定该碎片连接的位置 (根据 Dummy Atom 的 Isotope)
-            attachment_points = []
+            attachment_point = -1
             for atom in frag.GetAtoms():
                 if atom.GetAtomicNum() == 0:
-                    attachment_points.append(atom.GetIsotope())
-            
-            if not attachment_points: continue
+                    attachment_point=atom.GetIsotope()
+                    break
 
-            for core_idx in attachment_points:
-                if core_idx == 0:
-                    results["meso"] = clean_smiles
-                elif core_idx in [1, 6]:
-                    results["alpha"].append(clean_smiles)
-                elif core_idx in [2, 3, 7, 8]:
-                    results["beta"].append(clean_smiles)
-                elif core_idx in [5, 10]:
-                    # === 针对 Boron 碎片的特殊处理 ===
-                        # 标准 BF2 的 SMILES 通常含有 B 和 F
-                        # RDKit 生成的 clean_smiles 可能是 "FB(F)" 或 "*B(*)(F)F" 等变体
-                        # 我们这里不做过度清洗，原样返回，交由后续分析
-                        results["boron_fragment"] = clean_smiles
+            if attachment_point < 0: continue
+
+            
+            if attachment_point == 0:
+                results["meso"] = clean_smiles
+            elif attachment_point in [1, 4, 6, 9]:
+                results["alpha"].append(clean_smiles)
+            elif attachment_point in [2, 3, 7, 8]:
+                results["beta"].append(clean_smiles)
+            elif attachment_point in [5, 10]:
+                # === 针对 Boron 碎片的特殊处理 ===
+                    # 标准 BF2 的 SMILES 通常含有 B 和 F
+                    # RDKit 生成的 clean_smiles 可能是 "FB(F)" 或 "*B(*)(F)F" 等变体
+                    # 我们这里不做过度清洗，原样返回，交由后续分析
+                    results["boron_fragment"] = clean_smiles
         
         # === 新增：归一化 Boron 状态 ===
         # 检查是否为标准 BF2
