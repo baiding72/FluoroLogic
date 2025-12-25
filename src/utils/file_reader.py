@@ -115,21 +115,13 @@ class DataIntegrator:
             red_res = self._parse_log_structure(red_path)
             if not neu_res or not red_res: continue
 
-            if mol_id == "BE_I":
-                print("Debug Breakpoint")
-
-            if mol_id == "BE_Br":
-                print("Debug Breakpoint")
-
-            if mol_id == "BE_F":
-                print("Debug Breakpoint")
-
             # 1. 骨架识别
             is_bodipy, scaffold = self.matcher.analyze(neu_res['mol'])
             
             # 2. 取代基提取 (化学语义)
             substituents_dict = {
                 "meso": {"smiles": "[H]", "structure": None},
+                "meso_flanking": [],
                 "alpha": [],
                 "beta": [],
                 "boron_fragment": None
@@ -147,6 +139,7 @@ class DataIntegrator:
                 extracted_subs = self.matcher.extract_substituents(neu_res['mol'])
                 if extracted_subs:
                     # 填入基础 SMILES
+                    substituents_dict["meso_flanking"] = extracted_subs["meso_flanking"]
                     substituents_dict["alpha"] = extracted_subs["alpha"]
                     substituents_dict["beta"] = extracted_subs["beta"]
                     substituents_dict["boron_fragment"] = extracted_subs["boron_fragment"]

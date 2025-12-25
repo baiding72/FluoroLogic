@@ -216,8 +216,9 @@ class BodipyScaffoldMatcher:
         
         results = {
             "meso": "[H]", 
-            "alpha": [],
-            "beta": [],
+            "meso_flanking": [], # 新增：1,7 位 (靠近 Meso)
+            "alpha": [],         # 3,5 位 (靠近 N)
+            "beta": [],          # 2,6 位 (中间)
             "boron_fragment": None
         }
         
@@ -240,9 +241,11 @@ class BodipyScaffoldMatcher:
             
             if attachment_point == 0:
                 results["meso"] = clean_smiles
-            elif attachment_point in [1, 4, 6, 9]:
+            elif attachment_point in [2, 7]:
+                results["meso_flanking"].append(clean_smiles)
+            elif attachment_point in [4, 9]:
                 results["alpha"].append(clean_smiles)
-            elif attachment_point in [2, 3, 7, 8]:
+            elif attachment_point in [3, 8]:
                 results["beta"].append(clean_smiles)
             elif attachment_point in [5, 10]:
                 # === 针对 Boron 碎片的特殊处理 ===
@@ -250,6 +253,10 @@ class BodipyScaffoldMatcher:
                     # RDKit 生成的 clean_smiles 可能是 "FB(F)" 或 "*B(*)(F)F" 等变体
                     # 我们这里不做过度清洗，原样返回，交由后续分析
                     results["boron_fragment"] = clean_smiles
+            elif attachment_point in [1, 6]:
+                # 非预期的连接点
+                print(f"骨架碳上有异常取代基: {attachment_point}，请检查！")
+                return None
         
         # === 新增：归一化 Boron 状态 ===
         # 检查是否为标准 BF2
