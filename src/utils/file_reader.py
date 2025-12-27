@@ -7,7 +7,7 @@ from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
 
 try:
-    from src.utils.chem_utils import BodipyScaffoldMatcher
+    from src.utils.chem_utils import BodipyScaffoldMatcher, BodipyStericAnalyzer
 except ImportError:
     import sys
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -119,13 +119,9 @@ class DataIntegrator:
             is_bodipy, scaffold = self.matcher.analyze(neu_res['mol'])
             
             # 2. 取代基提取 (化学语义)
-            substituents_dict = {
-                "meso": {"smiles": "[H]", "structure": None},
-                "meso_flanking": [],
-                "alpha": [],
-                "beta": [],
-                "boron_fragment": None
-            }
+            substituents_detailed = {}
+            meso_analysis = None
+            steric_metrics = None
             
             is_dimer = False
             if not is_bodipy and scaffold and scaffold.get("error") == "no_N_B_N_bridge":
@@ -135,28 +131,27 @@ class DataIntegrator:
             
             # 仅当是标准 BODIPY 时进行详细提取
             if is_bodipy:
-                # A. 提取所有 SMILES
-                extracted_subs = self.matcher.extract_substituents(neu_res['mol'])
-                if extracted_subs:
-                    # 填入基础 SMILES
-                    substituents_dict["meso_flanking"] = extracted_subs["meso_flanking"]
-                    substituents_dict["alpha"] = extracted_subs["alpha"]
-                    substituents_dict["beta"] = extracted_subs["beta"]
-                    substituents_dict["boron_fragment"] = extracted_subs["boron_fragment"]
-                    substituents_dict["boron_type"] = extracted_subs["boron_type"]
-                    substituents_dict["meso"]["smiles"] = extracted_subs["meso"]
-
-                # B. 提取 Meso 物理结构 (连接类型、二面角)
+                # A. 提取详细取代基 (Dict: core_idx -> list of info)
+                substituents_detailed = self.matcher.extract_substituents_detailed(neu_res['mol'], scaffold)
+                
+                # B. Meso 位物理结构分析 (独立于取代基列表)
                 if scaffold:
-                    meso_struct = self.matcher.analyze_meso_structure(neu_res['mol'], scaffold)
-                    substituents_dict["meso"]["structure"] = meso_struct
-                    
-                    # C. 计算还原态二面角 (如果 Meso 是共轭的)
-                    red_dihedral = None
-                    if meso_struct and meso_struct['is_conjugated']:
-                        red_dihedral = self.matcher._compute_dihedral_value(
-                             red_res['mol'], scaffold, meso_struct['anchor_idx']
-                        )
+                    meso_analysis = self.matcher.analyze_meso_structure(neu_res['mol'], scaffold)
+
+                # C. 3D 空间分析 (基于详细的 substituents)
+                analyzer = BodipyStericAnalyzer(neu_res['mol'], scaffold)
+                
+                steric_metrics = {
+                    "core_rmsd": None,
+                    "symmetry_index": None,
+                    "steric_heights": None
+                }
+
+                # 计算各项指标
+                steric_metrics.update(analyzer.calc_core_rmsd())
+                steric_metrics.update(analyzer.calc_symmetry_index())
+                # 使用详细字典计算高度
+                steric_metrics["steric_heights"] = analyzer.calc_steric_heights(substituents_detailed)
             else:
                 # 非 BODIPY，保持默认空值
                 red_dihedral = None
@@ -165,9 +160,9 @@ class DataIntegrator:
             neu_E = neu_res['energy']
             red_E = red_res['energy']
             delta_E = red_E - neu_E 
-            
-            neu_dihedral = substituents_dict["meso"]["structure"]["dihedral_angle"] if (is_bodipy and substituents_dict["meso"]["structure"]) else None
-            
+
+            neu_dihedral = substituents_detailed["meso"]["structure"]["dihedral_angle"] if (is_bodipy and substituents_detailed["meso"]["structure"]) else None
+
             delta_dihedral = None
             reorg_type = "Rigid/Unknown"
             if neu_dihedral is not None and red_dihedral is not None:
@@ -183,7 +178,8 @@ class DataIntegrator:
                 "smiles": meta_info['smiles'],
                 
                 # === 核心数据结构 ===
-                "substituents": substituents_dict,
+                "substituents": substituents_detailed,
+                "steric_properties": steric_metrics,
                 # ===================
 
                 "potential_info": {
