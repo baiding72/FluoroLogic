@@ -5,13 +5,7 @@ import cclib
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
-
-try:
-    from src.utils.chem_utils import BodipyScaffoldMatcher, BodipyStericAnalyzer
-except ImportError:
-    import sys
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-    from src.utils.chem_utils import BodipyScaffoldMatcher
+from src.utils.chem_utils import BodipyScaffoldMatcher, BodipyStericAnalyzer
 
 # ================= 配置区 =================
 RAW_DFT_DIR = "data/raw_DFT"

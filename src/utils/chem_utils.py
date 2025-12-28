@@ -127,7 +127,7 @@ class BodipyScaffoldMatcher:
         
         meso_idx = scaffold_info['meso_idx']
         meso_atom = mol.GetAtomWithIdx(meso_idx)
-        core_indices = scaffold_info['all_core_indices']
+        core_indices = scaffold_info['all_core_idx']
         
         anchor_atom = None
         for nbr in meso_atom.GetNeighbors():
@@ -351,7 +351,7 @@ class BodipyScaffoldMatcher:
         """
         if not mol or not scaffold_info: return {}
 
-        core_indices = scaffold_info['all_core_indices']
+        core_indices = scaffold_info['all_core_idx']
         type_map = scaffold_info['type_map']
         results = {}
 
@@ -438,7 +438,7 @@ class BodipyStericAnalyzer:
         self.conf = mol.GetConformer()
         
         # 预计算核心平面
-        self.core_indices = list(scaffold_info['all_core_indices'])
+        self.core_indices = list(scaffold_info['all_core_idx'])
         self.plane_coeffs, self.core_centroid = self._fit_core_plane()
 
     def _fit_core_plane(self):
