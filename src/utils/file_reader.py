@@ -130,7 +130,8 @@ class DataIntegrator:
                 
                 # B. Meso 位物理结构分析 (独立于取代基列表)
                 if scaffold:
-                    meso_analysis = self.matcher.analyze_meso_structure(neu_res['mol'], scaffold)
+                    neu_meso_analysis = self.matcher.analyze_meso_structure(neu_res['mol'], scaffold)
+                    red_meso_analysis = self.matcher.analyze_meso_structure(red_res['mol'], scaffold)
 
                 # C. 3D 空间分析 (基于详细的 substituents)
                 analyzer = BodipyStericAnalyzer(neu_res['mol'], scaffold)
@@ -155,7 +156,8 @@ class DataIntegrator:
             red_E = red_res['energy']
             delta_E = red_E - neu_E 
 
-            neu_dihedral = substituents_detailed["meso"]["structure"]["dihedral_angle"] if (is_bodipy and substituents_detailed["meso"]["structure"]) else None
+            neu_dihedral = neu_meso_analysis["dihedral_angle"] if (is_bodipy and neu_meso_analysis["dihedral_angle"]) else None
+            red_dihedral = red_meso_analysis["dihedral_angle"] if (is_bodipy and red_meso_analysis["dihedral_angle"]) else None
 
             delta_dihedral = None
             reorg_type = "Rigid/Unknown"
@@ -196,7 +198,7 @@ class DataIntegrator:
             
         os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
         with open(OUTPUT_JSON, 'w') as f:
-            json.dump(processed_data, f, indent=4, default=str)
+            json.dump(processed_data, f, indent=4, separators=(',', ': '), default=str)
         print(f"\nProcessing Complete! Saved {len(processed_data)} molecules.")
 
 if __name__ == "__main__":

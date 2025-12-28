@@ -35,7 +35,7 @@ class BodipyScaffoldMatcher:
         
         # 取第一个匹配结果
         match = matches[0]
-        # print(f"  [Info] Match indices (Raw): {match}")
+        # print(f"  [Info] Match idx (Raw): {match}")
         
         # === 索引映射更新 ===
         # 新 SMARTS 有 11 个原子:
@@ -45,9 +45,9 @@ class BodipyScaffoldMatcher:
         
         return {
             "meso_idx": match[0],
-            "alpha_indices": [match[1], match[6]], # 直接连 Meso 的 Alpha 位
-            "nitrogen_indices": [match[5], match[10]], # 氮原子
-            "all_core_indices": set(match)
+            "alpha_idx": [match[1], match[6]], # 直接连 Meso 的 Alpha 位
+            "nitrogen_idx": [match[5], match[10]], # 氮原子
+            "all_core_idx": set(match)
         }
 
     def get_meso_substituent_atom(self, mol, scaffold_info):
@@ -56,13 +56,13 @@ class BodipyScaffoldMatcher:
         
         meso_idx = scaffold_info['meso_idx']
         meso_atom = mol.GetAtomWithIdx(meso_idx)
-        core_indices = scaffold_info['all_core_indices']
+        core_idx = scaffold_info['all_core_idx']
         
         print(f"  [Info] Analyzing neighbors of Meso-Carbon (Idx {meso_idx})...")
         
         for nbr in meso_atom.GetNeighbors():
             nbr_idx = nbr.GetIdx()
-            is_core = nbr_idx in core_indices
+            is_core = nbr_idx in core_idx
             symbol = nbr.GetSymbol()
             print(f"    -> Neighbor {nbr_idx} ({symbol}): In Core? {is_core}")
             
@@ -81,7 +81,7 @@ class BodipyScaffoldMatcher:
             return None
             
         # 2. 锁定 Core 参考点 (取任意一个 Alpha 碳)
-        idx_core_ref = scaffold_info['alpha_indices'][0]
+        idx_core_ref = scaffold_info['alpha_idx'][0]
         
         # 3. 锁定 Subst 参考点 (找一个重原子邻居)
         atom_subst = mol.GetAtomWithIdx(idx_subst)

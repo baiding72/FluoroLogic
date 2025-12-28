@@ -111,7 +111,7 @@ class BodipyScaffoldMatcher:
             "boron_idx": common_boron,
             "type_map": type_map, # <--- 新增这个 map，传给 extract
             # 顺便把细分索引也存一下，方便 analyzer 使用
-            "indices_by_type": {
+            "idx_by_type": {
                 "meso": [match[0]],
                 "meso_flanking": [match[2], match[7]],
                 "beta": [match[3], match[8]],
@@ -127,11 +127,11 @@ class BodipyScaffoldMatcher:
         
         meso_idx = scaffold_info['meso_idx']
         meso_atom = mol.GetAtomWithIdx(meso_idx)
-        core_indices = scaffold_info['all_core_idx']
+        core_idx = scaffold_info['all_core_idx']
         
         anchor_atom = None
         for nbr in meso_atom.GetNeighbors():
-            if nbr.GetIdx() not in core_indices:
+            if nbr.GetIdx() not in core_idx:
                 anchor_atom = nbr
                 break
         
@@ -202,7 +202,7 @@ class BodipyScaffoldMatcher:
     def _compute_dihedral_value(self, mol, scaffold_info, anchor_idx):
         try:
             idx_meso = scaffold_info['meso_idx']
-            idx_core_ref = scaffold_info['alpha_indices'][0]
+            idx_core_ref = scaffold_info['alpha_idx'][0]
             anchor_atom = mol.GetAtomWithIdx(anchor_idx)
             idx_anchor_ref = None
             for nbr in anchor_atom.GetNeighbors():
@@ -351,12 +351,12 @@ class BodipyScaffoldMatcher:
         """
         if not mol or not scaffold_info: return {}
 
-        core_indices = scaffold_info['all_core_idx']
+        all_core_idx = scaffold_info['all_core_idx']
         type_map = scaffold_info['type_map']
         results = {}
 
         # 遍历骨架上的每一个原子，看它外面连了什么
-        for core_idx in core_indices:
+        for core_idx in all_core_idx:
             # 只处理我们在 type_map 里定义的感兴趣的位点
             # (跳过 index 1, 6 这种骨架内部连接点)
             site_type = type_map.get(core_idx)
@@ -368,16 +368,16 @@ class BodipyScaffoldMatcher:
                 nbr_idx = nbr.GetIdx()
                 
                 # 如果邻居也是骨架原子，忽略
-                if nbr_idx in core_indices: continue
+                if nbr_idx in all_core_idx: continue
                 
                 # === 发现取代基 (Root: nbr_idx) ===
                 
                 # 1. 也是最重要的一步：获取取代基的所有原始原子索引
-                subst_indices = self._get_substructure_indices(mol, nbr_idx, core_indices)
+                subst_idx = self._get_substructure_idx(mol, nbr_idx, all_core_idx)
                 
                 # 2. 生成 SMILES (方便 Hammett 查表)
                 # 使用 MolFragmentToSmiles，它不会改变原始分子的索引，只是提取子图生成字符串
-                subst_smiles = Chem.MolFragmentToSmiles(mol, atomsToUse=subst_indices, canonical=True)
+                subst_smiles = Chem.MolFragmentToSmiles(mol, atomsToUse=subst_idx, canonical=True)
                 
                 # 3. 归类
                 # 如果是 Boron Center (N)，它连出来的除了 B 还有别的吗？
@@ -398,29 +398,29 @@ class BodipyScaffoldMatcher:
                 results[core_idx].append({
                     "type": final_type,
                     "smiles": subst_smiles,
-                    "atom_indices": subst_indices, # [25, 26, 27...] 全局索引保住了！
+                    "atom_idx": subst_idx, # [25, 26, 27...] 全局索引保住了！
                     "root_idx": nbr_idx
                 })
 
         return results
 
-    def _get_substructure_indices(self, mol, root_idx, forbidden_indices):
+    def _get_substructure_idx(self, mol, root_idx, forbidden_idx):
         """BFS 遍历获取子结构索引"""
-        indices = []
-        visited = set(forbidden_indices) # 骨架是墙
+        idx = []
+        visited = set(forbidden_idx) # 骨架是墙
         stack = [root_idx]
         
         while stack:
             curr = stack.pop()
             if curr in visited: continue
             visited.add(curr)
-            indices.append(curr) # 记录原始索引
+            idx.append(curr) # 记录原始索引
             
             atom = mol.GetAtomWithIdx(curr)
             for nbr in atom.GetNeighbors():
                 if nbr.GetIdx() not in visited:
                     stack.append(nbr.GetIdx())
-        return indices
+        return idx
 
 
 
@@ -438,7 +438,7 @@ class BodipyStericAnalyzer:
         self.conf = mol.GetConformer()
         
         # 预计算核心平面
-        self.core_indices = list(scaffold_info['all_core_idx'])
+        self.core_idx = list(scaffold_info['all_core_idx'])
         self.plane_coeffs, self.core_centroid = self._fit_core_plane()
 
     def _fit_core_plane(self):
@@ -447,7 +447,7 @@ class BodipyStericAnalyzer:
         使用 SVD 分解计算最小二乘平面: ax + by + cz + d = 0
         """
         coords = []
-        for idx in self.core_indices:
+        for idx in self.core_idx:
             pos = self.conf.GetAtomPosition(idx)
             coords.append(np.array([pos.x, pos.y, pos.z]))
         
@@ -484,7 +484,7 @@ class BodipyStericAnalyzer:
         sq_dists = []
         max_displacement = 0.0
         
-        for idx in self.core_indices:
+        for idx in self.core_idx:
             d = self._dist_to_plane(idx)
             sq_dists.append(d**2)
             if d > max_displacement:
@@ -523,17 +523,17 @@ class BodipyStericAnalyzer:
                 # 同样忽略连接在 N 上的 B 碎片
                 if sub.get('type') == 'boron_fragment': continue
                 
-                indices = sub['atom_indices']
-                if not indices: continue
+                idx = sub['atom_idx']
+                if not idx: continue
                 
                 # 过滤掉 H 原子，只算重原子
-                heavy_indices = [idx for idx in indices if self.mol.GetAtomWithIdx(idx).GetAtomicNum() > 1]
-                if not heavy_indices: continue
+                heavy_idx = [idx for idx in idx if self.mol.GetAtomWithIdx(idx).GetAtomicNum() > 1]
+                if not heavy_idx: continue
                 
                 # 计算该取代基内所有原子的"高度" (到平面的垂直距离)
                 local_max_h = 0.0
                 
-                for idx in heavy_indices:
+                for idx in heavy_idx:
                     pos = self.conf.GetAtomPosition(idx)
                     dist = abs(a*pos.x + b*pos.y + c*pos.z + d) / denom
                     
@@ -566,14 +566,14 @@ class BodipyStericAnalyzer:
         # Scaffold Index 回顾:
         # Branch 1 (Left): Alpha=1, Beta=2,3, Alpha'=4, N=5
         # Branch 2 (Right): Alpha=6, Beta=7,8, Alpha'=9, N=10
-        left_indices = [1, 2, 3, 4, 5]
-        right_indices = [6, 7, 8, 9, 10]
+        left_idx = [1, 2, 3, 4, 5]
+        right_idx = [6, 7, 8, 9, 10]
         
         # 获取连接在左/右半球上的所有原子（递归）
-        def get_branch_mass(root_indices):
+        def get_branch_mass(root_idx):
             total_mass = 0.0
-            visited = set(self.core_indices) # 骨架视为墙
-            stack = list(root_indices)
+            visited = set(self.core_idx) # 骨架视为墙
+            stack = list(root_idx)
             
             # 初始这几个骨架原子本身的质量不计入（或者计入也行，对称的）
             # 我们只关心取代基
@@ -582,7 +582,7 @@ class BodipyStericAnalyzer:
             
             # 重新遍历，这次从 root 的邻居开始
             search_stack = []
-            for r in root_indices:
+            for r in root_idx:
                 atom = self.mol.GetAtomWithIdx(r)
                 for nbr in atom.GetNeighbors():
                     if nbr.GetIdx() not in visited:
@@ -600,8 +600,8 @@ class BodipyStericAnalyzer:
                         search_stack.append(nbr.GetIdx())
             return subst_mass
 
-        left_mass = get_branch_mass(left_indices)
-        right_mass = get_branch_mass(right_indices)
+        left_mass = get_branch_mass(left_idx)
+        right_mass = get_branch_mass(right_idx)
         
         # 归一化不对称度: |L - R| / (L + R + 1e-6)
         asymmetry = abs(left_mass - right_mass) / (left_mass + right_mass + 0.1)

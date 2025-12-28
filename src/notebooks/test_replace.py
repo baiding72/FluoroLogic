@@ -2,7 +2,7 @@ from rdkit import Chem
 from rdkit.Chem import rdRGroupDecomposition
 import copy
 
-def replace_core_with_original_indices(mol, core_pattern, replacement_pattern):
+def replace_core_with_original_idx(mol, core_pattern, replacement_pattern):
     """
     使用ReplaceCore替换核心结构，同时保留原始原子索引信息
     
@@ -24,17 +24,17 @@ def replace_core_with_original_indices(mol, core_pattern, replacement_pattern):
         return mol, {}
     
     # 获取核心结构中的原子索引
-    core_atom_indices = set()
+    core_atom_idx = set()
     for match in core_matches[0]:  # 取第一个匹配
-        core_atom_indices.add(match)
+        core_atom_idx.add(match)
     
     # 获取连接点（非核心结构的原子）
     connection_points = []
-    for atom_idx in core_atom_indices:
+    for atom_idx in core_atom_idx:
         atom = mol.GetAtomWithIdx(atom_idx)
         for neighbor in atom.GetNeighbors():
             neighbor_idx = neighbor.GetIdx()
-            if neighbor_idx not in core_atom_indices:
+            if neighbor_idx not in core_atom_idx:
                 connection_points.append((atom_idx, neighbor_idx))
     
     # 执行核心替换
@@ -68,7 +68,7 @@ def replace_core_with_original_indices(mol, core_pattern, replacement_pattern):
         print(f"替换过程中出现错误: {e}")
         return mol, {}
 
-def track_rgroup_decomposition_with_indices(mol, core_pattern):
+def track_rgroup_decomposition_with_idx(mol, core_pattern):
     """
     使用RGroup分解保留原始索引信息
     """
@@ -124,7 +124,7 @@ def example_usage():
         print(f"原子 {i}: 原子序数 {atom.GetAtomicNum()}, 度数 {atom.GetDegree()}")
     
     # 使用自定义函数进行替换
-    new_mol, index_mapping = replace_core_with_original_indices(mol, core_pattern, replacement_pattern)
+    new_mol, index_mapping = replace_core_with_original_idx(mol, core_pattern, replacement_pattern)
     
     print(f"\n替换后分子: {Chem.MolToSmiles(new_mol)}")
     print(f"原子数量: {new_mol.GetNumAtoms()}")
