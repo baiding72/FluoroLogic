@@ -492,7 +492,7 @@ class BodipyStericAnalyzer:
                 
         rmsd = np.sqrt(np.mean(sq_dists))
         return {
-            "rmsd": round(rmsd, 4),
+            "core_rmsd": round(rmsd, 4),
             "max_out_of_plane": round(max_displacement, 4)
         }
 
@@ -556,6 +556,64 @@ class BodipyStericAnalyzer:
                 elif s_type == 'alpha':
                     metrics["max_height_alpha"] = max(metrics["max_height_alpha"], val)
 
+        return metrics
+    
+    def calc_proximal_distances(self, substituents_detailed):
+        """
+        [新增] 指标 3补充: 取代基原子到核心质心的最小距离
+        用于检测"折叠 (Folding)"构象。
+        
+        逻辑：
+        如果一个长链的 min_dist_to_centroid 很小 (接近 3-4 Å)，
+        说明链条的某一部分折叠到了 BODIPY 核心的上方或下方 (π-stacking 或 氢键吸附)。
+        """
+        metrics = {
+            "min_dist_meso_flanking": 0.0,
+            "min_dist_beta": 0.0,
+            "min_dist_alpha": 0.0
+        }
+        
+        # 核心质心 (已在 __init__ 中计算: self.core_centroid)
+        cx, cy, cz = self.core_centroid
+        
+        for core_idx, subs_list in substituents_detailed.items():
+            for sub in subs_list:
+                if sub['type'] == 'boron_fragment': continue
+                
+                indices = sub['atom_idx']
+                root_idx = sub['root_idx'] # 连接点原子
+                if not indices: continue
+                
+                # 过滤掉 H 和 连接点原子本身 (Root Atom)
+                # 我们只关心"长出去"的部分有没有折回来
+                target_indices = [
+                    idx for idx in indices 
+                    if idx != root_idx and self.mol.GetAtomWithIdx(idx).GetAtomicNum() > 1
+                ]
+                
+                if not target_indices: continue
+                
+                local_min_dist = 999.0
+                
+                for idx in target_indices:
+                    pos = self.conf.GetAtomPosition(idx)
+                    # 计算到质心的欧几里得距离
+                    dist = np.sqrt((pos.x - cx)**2 + (pos.y - cy)**2 + (pos.z - cz)**2)
+                    if dist < local_min_dist:
+                        local_min_dist = dist
+                
+                # 更新指标
+                s_type = sub.get('type')
+                val = round(local_min_dist, 3)
+                
+                if s_type in 'meso_flanking':
+                    # 记录最大的那个 flanking 基团高度
+                    metrics["min_dist_meso_flanking"] = max(metrics["min_dist_meso_flanking"], val)
+                elif s_type == 'beta':
+                    metrics["min_dist_beta"] = max(metrics["min_dist_beta"], val)
+                elif s_type == 'alpha':
+                    metrics["min_dist_alpha"] = max(metrics["min_dist_alpha"], val)
+                        
         return metrics
 
     def calc_symmetry_index(self):

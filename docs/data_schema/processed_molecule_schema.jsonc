@@ -65,13 +65,6 @@
 
     // ================= 3D 空间效应量化指标 =================
     "steric_properties": {
-        // [注意] 这里有一点冗余：
-        // core_rmsd 和 symmetry_index 为 null 是初始化时的占位符
-        // 实际计算结果存在了下面的 rmsd 和 mass_asymmetry 字段中
-        // 建议后续统一键名。
-        "core_rmsd": null,         
-        "symmetry_index": null,
-
         // --- 核心指标 3: 最大垂直高度 (Steric Height) ---
         // 物理含义：取代基向平面外伸出了多远 (越大 = 越垂直/位阻越大)
         "steric_heights": {
@@ -83,7 +76,7 @@
         },
 
         // --- 核心指标 1: 骨架平面性 ---
-        "rmsd": 0.0245,           // 0.02 Å -> 骨架非常平整 (Planar)
+        "core_rmsd": 0.0245,           // 0.02 Å -> 骨架非常平整 (Planar)
         "max_out_of_plane": 0.0448, // 最大翘曲也很小，说明共轭骨架未被破坏
 
         // --- 核心指标 4: 对称性破坏 ---

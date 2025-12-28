@@ -95,6 +95,30 @@ class DataIntegrator:
         except Exception as e:
             return None
 
+    # === 定义一个辅助函数来跑分析 ===
+    def analyze_conformation(self, mol, scaffold, subs_detailed):
+        """对给定的构象进行全套几何分析"""
+        if not mol or not scaffold: return None
+        
+        analyzer = BodipyStericAnalyzer(mol, scaffold)
+        
+        metrics = {
+            # 1. 骨架变形
+            **analyzer.calc_core_rmsd(), # 包含 core_rmsd, max_out_of_plane
+            # 2. 对称性 (虽然 mass 不变，但空间分布可能微调，算一下无妨)
+            **analyzer.calc_symmetry_index(),
+            # 3. 空间高度 (张开程度)
+            "steric_heights": analyzer.calc_steric_heights(subs_detailed),
+            # 4. [新增] 折叠程度 (最小距离)
+            "proximal_distances": analyzer.calc_proximal_distances(subs_detailed)
+        }
+        
+        # 5. 二面角 (Meso)
+        meso_struct = self.matcher.analyze_meso_structure(mol, scaffold)
+        metrics["meso_dihedral"] = meso_struct.get("dihedral_angle") if meso_struct else None
+        
+        return metrics
+
     def process_all(self):
         processed_data = []
         print(f"Start processing. Meta size: {len(self.metadata)}")
@@ -115,7 +139,6 @@ class DataIntegrator:
             
             # 2. 取代基提取 (化学语义)
             substituents_detailed = {}
-            meso_analysis = None
             steric_metrics = None
             
             is_dimer = False
@@ -124,30 +147,20 @@ class DataIntegrator:
                 # 这里简单标记，不再深入提取
                 is_dimer = True
             
+            # === 执行双态分析 ===
+            neutral_metrics = None
+            reduced_metrics = None
+
             # 仅当是标准 BODIPY 时进行详细提取
             if is_bodipy:
                 # A. 提取详细取代基 (Dict: core_idx -> list of info)
                 substituents_detailed = self.matcher.extract_substituents_detailed(neu_res['mol'], scaffold)
                 
-                # B. Meso 位物理结构分析 (独立于取代基列表)
-                if scaffold:
-                    neu_meso_analysis = self.matcher.analyze_meso_structure(neu_res['mol'], scaffold)
-                    red_meso_analysis = self.matcher.analyze_meso_structure(red_res['mol'], scaffold)
-
-                # C. 3D 空间分析 (基于详细的 substituents)
-                analyzer = BodipyStericAnalyzer(neu_res['mol'], scaffold)
-                
-                steric_metrics = {
-                    "core_rmsd": None,
-                    "symmetry_index": None,
-                    "steric_heights": None
-                }
-
-                # 计算各项指标
-                steric_metrics.update(analyzer.calc_core_rmsd())
-                steric_metrics.update(analyzer.calc_symmetry_index())
-                # 使用详细字典计算高度
-                steric_metrics["steric_heights"] = analyzer.calc_steric_heights(substituents_detailed)
+                # 分别分析两种构象
+                neutral_metrics = self.analyze_conformation(neu_res['mol'], scaffold, substituents_detailed)
+                # 注意：还原态直接复用 Neutral 的 scaffold 和 substituents 索引信息
+                # 前提：原子编号在 neu.log 和 red.log 中必须一致！
+                reduced_metrics = self.analyze_conformation(red_res['mol'], scaffold, substituents_detailed)
             else:
                 # 非 BODIPY，保持默认空值
                 red_dihedral = None
@@ -156,17 +169,9 @@ class DataIntegrator:
             neu_E = neu_res['energy']
             red_E = red_res['energy']
             delta_E = red_E - neu_E 
-
-            neu_dihedral = neu_meso_analysis["dihedral_angle"] if (is_bodipy and neu_meso_analysis["dihedral_angle"]) else None
-            red_dihedral = red_meso_analysis["dihedral_angle"] if (is_bodipy and red_meso_analysis["dihedral_angle"]) else None
-
             delta_dihedral = None
             reorg_type = "Rigid/Unknown"
-            if neu_dihedral is not None and red_dihedral is not None:
-                delta_dihedral = round(red_dihedral - neu_dihedral, 1)
-                if abs(red_dihedral) < abs(neu_dihedral) - 5: reorg_type = "Flattening"
-                elif abs(red_dihedral) > abs(neu_dihedral) + 5: reorg_type = "Twisting"
-                else: reorg_type = "Rigid"
+        
 
             entry = {
                 "id": mol_id,
@@ -186,14 +191,25 @@ class DataIntegrator:
                 "optical_properties": {
                     "abs_max_nm": meta_info['abs_max_nm']
                 },
+                # === 核心修改：双态几何数据 ===
                 "states": {
-                    "neutral": { "energy_ev": round(neu_E, 4), "dihedral_angle": neu_dihedral },
-                    "reduced": { "energy_ev": round(red_E, 4), "dihedral_angle": red_dihedral }
+                    "neutral": {
+                        "energy_ev": round(neu_E, 4),
+                        "geometry": neutral_metrics # <--- 包含 RMSD, Height, Dist, Dihedral
+                    },
+                    "reduced": {
+                        "energy_ev": round(red_E, 4),
+                        "geometry": reduced_metrics # <--- 同上，对比由此产生
+                    }
                 },
+                # 可以在这里预计算一些 Delta 值方便 Agent 直接看
                 "reorganization_metrics": {
-                    "delta_dihedral": delta_dihedral,
-                    "reorganization_type": reorg_type
-                }
+                    "delta_energy_ev": round(delta_E, 3),
+                    "delta_dihedral": round(reduced_metrics['meso_dihedral'] - neutral_metrics['meso_dihedral'], 1) if (neutral_metrics and reduced_metrics and neutral_metrics['meso_dihedral']) else None,
+                    "delta_rmsd": round(reduced_metrics['core_rmsd'] - neutral_metrics['core_rmsd'], 4) if (neutral_metrics and reduced_metrics) else None,
+                    # 新增：判断是否发生"呼吸" (张开/闭合)
+                    "delta_max_height": round(reduced_metrics['steric_heights']['max_height_overall'] - neutral_metrics['steric_heights']['max_height_overall'], 3) if (neutral_metrics and reduced_metrics) else None
+                },
             }
             processed_data.append(entry)
             
