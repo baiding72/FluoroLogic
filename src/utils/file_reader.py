@@ -6,6 +6,7 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
 from src.utils.chem_utils import BodipyScaffoldMatcher, BodipyStericAnalyzer
+from src.utils.json_utils import dump_json_pretty
 
 # ================= 配置区 =================
 RAW_DFT_DIR = "data/raw_DFT"
@@ -196,9 +197,8 @@ class DataIntegrator:
             }
             processed_data.append(entry)
             
-        os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
-        with open(OUTPUT_JSON, 'w') as f:
-            json.dump(processed_data, f, indent=4, separators=(',', ': '), default=str)
+        dump_json_pretty(processed_data, OUTPUT_JSON)
+
         print(f"\nProcessing Complete! Saved {len(processed_data)} molecules.")
 
 if __name__ == "__main__":
