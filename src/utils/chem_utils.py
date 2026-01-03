@@ -338,7 +338,7 @@ class BodipyScaffoldMatcher:
             else:
                 results["boron_type"] = BoronType.MODIFIED.value
         else:
-             results["boron_type"] = BoronType.NONE.value
+             results["boron_type"] = BoronType.UNKNOWN.value
         
         return results
     # src/utils/chem_utils.py
