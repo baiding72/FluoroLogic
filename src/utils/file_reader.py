@@ -109,11 +109,15 @@ class DataIntegrator:
             **analyzer.calc_symmetry_index(),
             # 3. 空间高度 (张开程度)
             "steric_heights": analyzer.calc_steric_heights(subs_detailed),
-            # 4. [新增] 折叠程度 (最小距离)
-            "proximal_distances": analyzer.calc_proximal_distances(subs_detailed)
+            # 4. 折叠程度 (最小距离)
+            "proximal_distances": analyzer.calc_proximal_distances(subs_detailed),
+            # 5. [新增] β位二面角
+            "beta_dihedrals": analyzer.calc_beta_dihedrals(subs_detailed),
+            # 6. [新增] 共轭链长度
+            "conjugation_lengths": analyzer.calc_conjugation_lengths(subs_detailed)
         }
         
-        # 5. 二面角 (Meso)
+        # 7. 二面角 (Meso)
         meso_struct = self.matcher.analyze_meso_structure(mol, scaffold)
         metrics["meso_dihedral"] = meso_struct.get("dihedral_angle") if meso_struct else None
         

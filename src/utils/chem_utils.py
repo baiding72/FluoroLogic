@@ -669,3 +669,237 @@ class BodipyStericAnalyzer:
             "left_mass": round(left_mass, 1),
             "right_mass": round(right_mass, 1)
         }
+
+    def calc_beta_dihedrals(self, substituents_detailed):
+        """
+        [新增] 指标 5: β位二面角
+        
+        物理意义:
+        - β位 (2,6位) 的取代基如果是芳香环或共轭基团，其与BODIPY核心的二面角
+          会影响电子的离域范围
+        - 二面角接近0° → 共轭延伸
+        - 二面角接近90° → 共轭阻断
+        
+        返回: 两个β位的二面角列表 (如果存在sp2取代基)
+        """
+        beta_dihedrals = []
+        
+        # 遍历 substituents_detailed 找到 beta 位取代基
+        for core_idx, subs_list in substituents_detailed.items():
+            for sub in subs_list:
+                if sub.get('type') != 'beta':
+                    continue
+                    
+                root_idx = sub.get('root_idx')
+                if root_idx is None:
+                    continue
+                
+                # 检查取代基首原子是否为sp2 (芳香/共轭)
+                root_atom = self.mol.GetAtomWithIdx(root_idx)
+                
+                # 只有重原子才考虑计算二面角
+                if root_atom.GetAtomicNum() <= 1:  # H 原子
+                    continue
+                    
+                # 检查杂化类型 (使用推断方法以支持 DFT 解析分子)
+                hyb = self._infer_hybridization(root_atom)
+                if hyb not in [Chem.HybridizationType.SP2, Chem.HybridizationType.SP]:
+                    # sp3 碳 (如甲基) 不需要计算二面角
+                    continue
+                
+                # 计算二面角
+                # Path: [Core_Ref] - [Beta_C] - [Subst_Root] - [Subst_Ref]
+                angle = self._calc_site_dihedral(int(core_idx), root_idx)
+                
+                if angle is not None:
+                    beta_dihedrals.append({
+                        "core_idx": int(core_idx),
+                        "root_idx": root_idx,
+                        "smiles": sub.get('smiles', ''),
+                        "dihedral": angle
+                    })
+        
+        # 汇总统计
+        if beta_dihedrals:
+            angles = [d['dihedral'] for d in beta_dihedrals]
+            return {
+                "beta_dihedrals": beta_dihedrals,
+                "max_beta_dihedral": max(angles),
+                "min_beta_dihedral": min(angles),
+                "avg_beta_dihedral": round(sum(angles) / len(angles), 1)
+            }
+        else:
+            return {
+                "beta_dihedrals": [],
+                "max_beta_dihedral": None,
+                "min_beta_dihedral": None,
+                "avg_beta_dihedral": None
+            }
+    
+    def _calc_site_dihedral(self, core_idx, subst_root_idx):
+        """
+        计算任意取代位点的二面角
+        Path: [Core_Ref] - [Core_Site] - [Subst_Root] - [Subst_Ref]
+        """
+        try:
+            # 获取 core_site 原子 (骨架上的连接点)
+            core_atom = self.mol.GetAtomWithIdx(core_idx)
+            
+            # 找 Core Reference (骨架上相邻的另一个原子，优先选择环内原子)
+            core_ref_idx = None
+            for nbr in core_atom.GetNeighbors():
+                if nbr.GetIdx() in self.core_idx and nbr.GetIdx() != subst_root_idx:
+                    core_ref_idx = nbr.GetIdx()
+                    break
+            
+            if core_ref_idx is None:
+                return None
+            
+            # 找 Subst Reference (取代基上的相邻重原子)
+            subst_root = self.mol.GetAtomWithIdx(subst_root_idx)
+            subst_ref_idx = None
+            for nbr in subst_root.GetNeighbors():
+                if nbr.GetIdx() != core_idx and nbr.GetAtomicNum() > 1:
+                    subst_ref_idx = nbr.GetIdx()
+                    break
+                    
+            if subst_ref_idx is None:
+                # 尝试使用氢原子
+                for nbr in subst_root.GetNeighbors():
+                    if nbr.GetIdx() != core_idx:
+                        subst_ref_idx = nbr.GetIdx()
+                        break
+            
+            if subst_ref_idx is None:
+                return None
+            
+            # 计算二面角
+            angle = rdMolTransforms.GetDihedralDeg(
+                self.conf, 
+                core_ref_idx, core_idx, subst_root_idx, subst_ref_idx
+            )
+            angle = abs(angle)
+            while angle > 90:
+                angle = abs(180 - angle)
+            return round(angle, 1)
+            
+        except Exception as e:
+            return None
+
+    def calc_conjugation_lengths(self, substituents_detailed):
+        """
+        [新增] 指标 6: 共轭链长度
+        
+        物理意义:
+        - 从 α 位 (3,5 位) 延伸出的共轭链 (如 styryl 基团) 长度
+        - 影响 LUMO 轨道的离域范围
+        - 链越长 → 吸收红移, 可能影响还原电位
+        
+        计算方式:
+        - 从 α 位连接原子开始，沿着连续的 sp2 碳原子计数
+        - 遇到 sp3 碳、杂原子或末端则停止
+        """
+        conj_lengths = []
+        
+        for core_idx, subs_list in substituents_detailed.items():
+            for sub in subs_list:
+                if sub.get('type') != 'alpha':
+                    continue
+                
+                root_idx = sub.get('root_idx')
+                if root_idx is None:
+                    continue
+                
+                # 计算共轭长度
+                length = self._trace_conjugation(root_idx, int(core_idx))
+                
+                if length > 0:
+                    conj_lengths.append({
+                        "core_idx": int(core_idx),
+                        "root_idx": root_idx,
+                        "smiles": sub.get('smiles', '')[:50],  # 截断长 SMILES
+                        "conjugation_length": length
+                    })
+        
+        if conj_lengths:
+            lengths = [c['conjugation_length'] for c in conj_lengths]
+            return {
+                "conjugation_details": conj_lengths,
+                "max_conjugation_length": max(lengths),
+                "total_conjugation_length": sum(lengths)
+            }
+        else:
+            return {
+                "conjugation_details": [],
+                "max_conjugation_length": 0,
+                "total_conjugation_length": 0
+            }
+    
+    def _infer_hybridization(self, atom):
+        """
+        推断原子杂化类型
+        对于从 DFT 解析的分子，RDKit 杂化可能为 UNSPECIFIED
+        使用度数 (degree) 作为启发式判断
+        """
+        # 先尝试 RDKit 的杂化
+        hyb = atom.GetHybridization()
+        if hyb != Chem.HybridizationType.UNSPECIFIED:
+            return hyb
+        
+        # 使用度数推断
+        atomic_num = atom.GetAtomicNum()
+        degree = atom.GetDegree()  # 连接的原子数（含隐式H）
+        
+        if atomic_num == 6:  # 碳
+            # C: sp3=4邻居, sp2=3邻居, sp=2邻居
+            if degree == 4:
+                return Chem.HybridizationType.SP3
+            elif degree == 3:
+                return Chem.HybridizationType.SP2
+            elif degree == 2:
+                return Chem.HybridizationType.SP
+        elif atomic_num == 7:  # 氮
+            if degree >= 3:
+                return Chem.HybridizationType.SP2  # 芳香氮或胺
+            elif degree == 2:
+                return Chem.HybridizationType.SP2
+        
+        return Chem.HybridizationType.UNSPECIFIED
+    
+    def _trace_conjugation(self, start_idx, forbidden_idx):
+        """
+        从 start_idx 开始追踪连续 sp2 碳原子链
+        返回链的长度 (原子数)
+        
+        使用自定义杂化推断以支持 DFT 解析的分子
+        """
+        count = 0
+        visited = {forbidden_idx}  # 防止回到骨架
+        stack = [start_idx]
+        
+        while stack:
+            curr_idx = stack.pop()
+            
+            if curr_idx in visited:
+                continue
+            visited.add(curr_idx)
+            
+            atom = self.mol.GetAtomWithIdx(curr_idx)
+            
+            # 只计算 sp2 或 sp 杂化的碳原子
+            if atom.GetAtomicNum() == 6:  # 碳原子
+                hyb = self._infer_hybridization(atom)
+                if hyb in [Chem.HybridizationType.SP2, Chem.HybridizationType.SP]:
+                    count += 1
+                    
+                    # 继续遍历邻居
+                    for nbr in atom.GetNeighbors():
+                        nbr_idx = nbr.GetIdx()
+                        if nbr_idx not in visited:
+                            # 只跟随 sp2/sp 碳继续
+                            if nbr.GetAtomicNum() == 6:
+                                nbr_hyb = self._infer_hybridization(nbr)
+                                if nbr_hyb in [Chem.HybridizationType.SP2, Chem.HybridizationType.SP]:
+                                    stack.append(nbr_idx)
+        
+        return count

@@ -1,117 +1,203 @@
 {
-    // ================= 基础元数据 =================
-    "id": "BE_23NO2",           // 分子唯一标识符 (通常来自文件名)
-    "is_bodipy": true,          // 【骨架识别】 是否通过 N-B-N 闭环验证
-    "is_dimer": false,          // 【二聚体过滤】 是否为二聚体 (false 代表是标准单体，适合分析)
-    "smiles": "[B-]1...)(F)F",  // 分子的完整 SMILES (包含立体化学信息)
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Processed BODIPY Molecule Data Schema",
+  "description": "BODIPY 分子综合数据库架构。包含拓扑结构、双态（中性/还原）几何分析、空间位阻指标及 DFT 电化学性质。",
+  "type": "object",
+  "required": [
+    "id",
+    "is_bodipy",
+    "smiles",
+    "substituents",
+    "states",
+    "potential_info"
+  ],
+  "properties": {
+    // ========================================================================
+    // 1. 基础元数据 (Metadata)
+    // ========================================================================
+    "id": {
+      "type": "string",
+      "description": "分子唯一标识符（通常源自文件名，如 'BE_23NO2'）。"
+    },
+    "is_bodipy": {
+      "type": "boolean",
+      "description": "【骨架识别】是否成功匹配到完整的 N-B-N BODIPY 核心骨架。"
+    },
+    "is_dimer": {
+      "type": "boolean",
+      "description": "【过滤标志】是否为二聚体。二聚体通常具有复杂的电子耦合，可能需要单独的分析逻辑。"
+    },
+    "smiles": {
+      "type": "string",
+      "description": "分子的标准 SMILES 字符串（包含立体化学信息）。"
+    },
 
-    // ================= 取代基深度分析 (核心部分) =================
-    // 键 (Key): 骨架原子在原分子中的索引 (Core Atom Index)
-    // 值 (Value): 连接在该骨架原子上的取代基列表
+    // ========================================================================
+    // 2. 取代基拓扑详解 (Substituent Topology)
+    // 核心用途：Hammett 电子效应分析 + 3D 可视化索引
+    // ========================================================================
     "substituents": {
-        // --- 实例 1: N 原子上连接的 B 碎片 ---
-        "1": [  // 索引 1 是骨架上的一个氮原子
-            {
-                "type": "nitrogen",         // 类型：N 连接位点
-                "smiles": "FBF",            // 提取出的 SMILES (表明是标准 BF2，或者是取代 B)
-                "atom_idx": [0, 68, 67],    // 【关键】取代基所有原子的原始索引 (用于 3D 可视化)
-                "root_idx": 0               // 直接连接在骨架(索引1)上的原子是索引 0 (即 B 原子)
-            }
-        ],
-        
-        // --- 实例 2: Alpha 位 (3,5-位) 取代 ---
-        "2": [ // 索引 2 是靠近 N 的骨架碳 (Alpha 位)
-            {
-                "type": "alpha",            // 类型：Alpha 位取代基
-                // 这是一个长链/复杂基团，SMILES 完整保留了化学结构
-                "smiles": "[H]CC([H])C1...", 
-                // 包含了该长链上所有 40 个原子的索引，用于计算这一坨东西的空间体积
-                "atom_idx": [48, 103, ... 105], 
-                "root_idx": 48              // 长链的锚点原子
-            }
-        ],
-
-        // --- 实例 3: Beta 位 (2,6-位) 取代 ---
-        "3": [ // 索引 3 是 Beta 碳
-            {
-                "type": "beta",
-                "smiles": "[H]",            // 这里是氢原子，说明没有取代
-                "atom_idx": [69],
-                "root_idx": 69
-            }
-        ],
-
-        // --- 实例 4: Meso-Flanking (1,7-位) 取代 ---
-        "4": [ // 索引 4 是紧邻 Meso 位的骨架碳
-            {
-                "type": "meso_flanking",    // 【关键类型】这个位置的位阻直接决定 Meso 苯环是否垂直
-                "smiles": "[H]C([H])[H]",   // 这是一个甲基 (Methyl)
-                "atom_idx": [47, 102, 101, 100],
-                "root_idx": 47
-            }
-        ],
-
-        // --- 实例 5: Meso 位取代 ---
-        "6": [ // 索引 6 是 Meso 碳 (C8)
-            {
-                "type": "meso",
-                "smiles": "[H]C1C([H])...", // 提取出的 Meso 取代基 (看起来是一个含硝基的复杂环/链)
-                "atom_idx": [7, 9, ... 8],
-                "root_idx": 7
-            }
-        ]
-        // ... (其他位点类似，对应骨架的对称部分) ...
-    },
-
-    // ================= 3D 空间效应量化指标 =================
-    "steric_properties": {
-        // --- 核心指标 3: 最大垂直高度 (Steric Height) ---
-        // 物理含义：取代基向平面外伸出了多远 (越大 = 越垂直/位阻越大)
-        "steric_heights": {
-            "max_height_overall": 3.716,       // 全局最高点 (通常是 Alpha 位长链伸出去的)
-            "max_height_meso_flanking": 2.311, // 【极重要】Meso 旁边的甲基高度 2.3Å
-                                               // 说明这个甲基不在平面内，可能挤压了 Meso 苯环
-            "max_height_beta": 0.0,            // Beta 位是 H，高度为 0 (共面)
-            "max_height_alpha": 3.716          // Alpha 位长链伸得很远
-        },
-
-        // --- 核心指标 1: 骨架平面性 ---
-        "core_rmsd": 0.0245,           // 0.02 Å -> 骨架非常平整 (Planar)
-        "max_out_of_plane": 0.0448, // 最大翘曲也很小，说明共轭骨架未被破坏
-
-        // --- 核心指标 4: 对称性破坏 ---
-        "mass_asymmetry": 0.224,  // 0.224 表示有一定的不对称性 (0 是完全对称)
-        "left_mass": 330.2,       // 左半球质量
-        "right_mass": 209.1       // 右半球质量 (左右不对称可能导致 LUMO 局域化)
-    },
-
-    // ================= 电化学势能信息 =================
-    "potential_info": {
-        "dft_potential_csv_V": -1.302, // 实验/文献对照值 (如果有)
-        "calc_energy_gap_eV": -3.713   // 计算出的能隙 (Reduced Energy - Neutral Energy)
-    },
-
-    // ================= 光学性质 (本例缺失) =================
-    "optical_properties": {
-        "abs_max_nm": NaN
-    },
-
-    // ================= 构象态对比 (机理分析) =================
-    "states": {
-        "neutral": {
-            "energy_ev": -90387.0199,
-            "dihedral_angle": 85.5 // 中性态 Meso 二面角 ~85.5° (垂直构象)
-        },
-        "reduced": {
-            "energy_ev": -90390.7328,
-            "dihedral_angle": 86.0 // 还原态 Meso 二面角 ~86.0°
-                                   // 结论：还原前后构象几乎不变 (Rigid)
+      "type": "object",
+      "description": "以 BODIPY 骨架原子索引为键的取代基字典。",
+      "patternProperties": {
+        "^[0-9]+$": { // 键名是字符串格式的整数（骨架原子索引，如 '2', '6'）
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["meso", "meso_flanking", "alpha", "beta", "nitrogen", "boron_center"],
+                "description": "取代位点的化学分类（决定了 Hammett 效应的敏感度 ρ）。"
+              },
+              "smiles": {
+                "type": "string",
+                "description": "该取代基的独立 SMILES（用于查 Hammett 表）。"
+              },
+              "atom_idx": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "【3D 映射】该取代基在原分子中的所有原子索引列表。用于计算空间体积或高亮显示。"
+              },
+              "root_idx": {
+                "type": "integer",
+                "description": "【锚点】取代基上直接连接到 BODIPY 骨架的原子索引。它是距离计算的起点。"
+              }
+            },
+            "required": ["type", "smiles", "atom_idx", "root_idx"]
+          }
         }
+      }
     },
 
-    // ================= 重组能指标 =================
+    // ========================================================================
+    // 3. 电化学与光学性质 (Properties)
+    // 核心用途：Agent 的预测目标（Target）
+    // ========================================================================
+    "potential_info": {
+      "type": "object",
+      "properties": {
+        "dft_potential_csv_V": {
+          "type": "number",
+          "description": "DFT 计算得到的还原电位（相对于参考电极，单位 V）。这是判断异常电位的基准值。"
+        },
+        "calc_energy_gap_eV": {
+          "type": "number",
+          "description": "前线轨道能隙或氧化还原能级差（单位 eV）。"
+        }
+      }
+    },
+    "optical_properties": {
+      "type": "object",
+      "properties": {
+        "abs_max_nm": {
+          "type": ["number", "null"], // NaN 在 JSON 中通常表示为 null
+          "description": "最大吸收波长（nm）。"
+        }
+      }
+    },
+
+    // ========================================================================
+    // 4. 双态几何分析 (Dual-State Geometry) - [核心物理引擎]
+    // 核心用途：解释构象门控（Gating）、重组能及异常电位
+    // ========================================================================
+    "states": {
+      "type": "object",
+      "properties": {
+        "neutral": { "$ref": "#/definitions/state_detail" },
+        "reduced": { "$ref": "#/definitions/state_detail" }
+      },
+      "description": "包含中性态（Neutral）和还原态（Reduced）的详细几何与能量数据。对比两态差异可揭示电子转移机理。"
+    },
+
+    // ========================================================================
+    // 5. 重组能指标 (Reorganization Metrics)
+    // 核心用途：量化结构弛豫（Structural Relaxation）
+    // ========================================================================
     "reorganization_metrics": {
-        "delta_dihedral": 0.5,      // 角度变化仅 0.5°
-        "reorganization_type": "Rigid" // 判定为刚性分子，重组能小，利于电子传输
+      "type": "object",
+      "properties": {
+        "delta_energy_ev": {
+            "type": "number",
+            "description": "绝热电子亲和能（AEA）或能量差。"
+        },
+        "delta_dihedral": {
+            "type": "number",
+            "description": "二面角变化量。大值意味着构象发生了旋转（如垂直 -> 共面）。"
+        },
+        "delta_rmsd": {
+            "type": "number",
+            "description": "骨架 RMSD 变化量。大值暗示极化子效应或蝴蝶型畸变。"
+        },
+        "delta_max_height": {
+            "type": "number",
+            "description": "最大位阻高度变化量。用于检测 '呼吸效应'（侧链张开/闭合）。"
+        }
+      }
     }
+  },
+
+  // ========================================================================
+  // 定义复用的 State 结构
+  // ========================================================================
+  "definitions": {
+    "state_detail": {
+      "type": "object",
+      "properties": {
+        "energy_ev": { "type": "number" },
+        "geometry": {
+          "type": "object",
+          "properties": {
+            // --- 骨架平面性 ---
+            "core_rmsd": {
+                "type": "number",
+                "description": "骨架原子相对于拟合平面的均方根偏差。>0.1 Å 意味着骨架发生弯曲（Saddle/Ruffle）。"
+            },
+            "max_out_of_plane": { "type": "number" },
+            
+            // --- 质量分布（对称性）---
+            "mass_asymmetry": {
+                "type": "number",
+                "description": "左右半球质量分布的不对称指数 (0-1)。不对称可能导致 LUMO 局域化。"
+            },
+            "left_mass": { "type": "number" },
+            "right_mass": { "type": "number" },
+
+            // --- 关键角度 ---
+            "meso_dihedral": {
+                "type": "number",
+                "description": "Meso 位苯环与 BODIPY 核心的二面角。~90° 为去共轭（垂直），~0°/45° 为共轭。"
+            },
+
+            // --- 空间位阻高度 (Steric Heights) ---
+            // 物理意义：取代基向平面外伸展的程度。
+            // 判据：Meso_flanking 高度 > 2.0 Å 通常强制 Meso 苯环垂直。
+            "steric_heights": {
+              "type": "object",
+              "properties": {
+                "max_height_overall": { "type": "number" },
+                "max_height_meso_flanking": { "type": "number" },
+                "max_height_beta": { "type": "number" },
+                "max_height_alpha": { "type": "number" }
+              }
+            },
+
+            // --- 邻近距离 (Proximal Distances) ---
+            // 物理意义：长链原子到核心质心的最小距离。
+            // 判据：长链的 min_dist < 3.5 Å 暗示发生 '折叠' (Folding/π-stacking)，可能导致异常电位。
+            "proximal_distances": {
+              "type": "object",
+              "properties": {
+                "min_dist_meso_flanking": { "type": ["number", "null"] },
+                "min_dist_beta": { "type": ["number", "null"] },
+                "min_dist_alpha": { "type": ["number", "null"] }
+              }
+            }
+          },
+          "required": ["core_rmsd", "steric_heights", "proximal_distances"]
+        }
+      },
+      "required": ["energy_ev", "geometry"]
+    }
+  }
 }
