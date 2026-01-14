@@ -8,10 +8,9 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
 
 # 导入你的工具
 from src.tools.electronic import check_hammett
-from src.tools.retrieval import query_bodi_database
+from src.tools.retrieval import query_bodi_database, find_activity_cliff, query_by_mechanism
 from src.agent.model_factory import ModelFactory
 from src.tools.structure import analyze_structural_reorganization
-from src.tools.retrieval import query_bodi_database
 
 # 1. 定义状态 (State)
 # LangGraph 需要定义一个状态对象，这里我们只存储消息列表
@@ -21,9 +20,16 @@ class AgentState(TypedDict):
 # 2. 准备 LLM 和 工具
 # 这里记得去 .env 检查一下你的 CURRENT_MODEL 是什么
 # 建议先用 API (qwen_pro) 测试，因为 Ollama 可能第一次调用 tool 会失败
-llm = ModelFactory.get_model(os.getenv("CURRENT_MODEL", "qwen_pro"), temperature=0)
+llm = ModelFactory.get_model(os.getenv("CURRENT_MODEL", "qwen_dev"), temperature=0)
 
-tools = [check_hammett, analyze_structural_reorganization, query_bodi_database]
+# 包含新的检索工具
+tools = [
+    check_hammett, 
+    analyze_structural_reorganization, 
+    query_bodi_database,
+    find_activity_cliff,      # 新增: Activity Cliff 检测
+    query_by_mechanism        # 新增: 按机理检索
+]
 llm_with_tools = llm.bind_tools(tools) # 这一步是关键，把工具绑定到模型
 
 # 3. 定义节点 (Nodes)

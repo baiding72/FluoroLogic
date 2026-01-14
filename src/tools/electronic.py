@@ -100,8 +100,13 @@ class HammettCalculator:
         if not substituent_smiles or substituent_smiles == "[H]":
             return {"sigma": 0.0, "name": "Hydrogen", "method": "exact"}
         
-        # 预处理
-        clean_input = substituent_smiles.replace('*', '').strip()
+        # 预处理 - 处理各种连接点格式
+        clean_input = substituent_smiles.strip()
+        # 移除各种连接点表示
+        for pattern in ['[*]', '*', '-*', '[*]-', '-[*]', '*-']:
+            clean_input = clean_input.replace(pattern, '')
+        clean_input = clean_input.strip('-')
+        
         if not clean_input:
             return {"sigma": 0.0, "name": "Unknown", "method": "default"}
 
