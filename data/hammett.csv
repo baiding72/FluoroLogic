@@ -1,16 +1,61 @@
-Name,Smiles_Pattern,Smarts_Pattern,Sigma_p,Sigma_m,Type
-Hydrogen,[H],,0.00,0.00,Neutral
-Methyl,*C,C,-0.17,-0.07,Donor
-Ethyl,*CC,CC,-0.15,-0.07,Donor
-Isopropyl,*C(C)C,CC(C),-0.15,-0.07,Donor
-t-Butyl,*C(C)(C)C,CC(C)(C),-0.20,-0.10,Donor
-Phenyl,*c1ccccc1,c1ccccc1,-0.01,0.06,Weak Donor/Acceptor
-Methoxy,*OC,CO,-0.27,0.12,Donor (Resonance)
-Dimethylamino,*N(C)C,N(C)C,-0.83,-0.15,Strong Donor
-Nitro,*[N+](=O)[O-],[N+](=O)[O-],0.78,0.71,Strong Acceptor
-Cyano,*C#N,C#N,0.66,0.56,Strong Acceptor
-Fluoro,*F,F,0.06,0.34,Weak Acceptor
-Chloro,*Cl,Cl,0.23,0.37,Acceptor
-Bromo,*Br,Br,0.23,0.39,Acceptor
-Trifluoromethyl,*C(F)(F)F,C(F)(F)F,0.54,0.43,Strong Acceptor
-Generic Alkyl,,[CX4],-0.17,-0.07,Donor
+Name,Smiles_Pattern,Smarts_Pattern,Sigma_m,Sigma_p,F,R,Category
+Hydrogen,*,[$([#1])],0.00,0.00,0.00,0.00,fundamental
+Methyl,*C,[CX4H3],-0.07,-0.17,0.01,-0.18,alkyl
+Ethyl,*CC,[CX4H2][CX4H3],-0.07,-0.15,0.00,-0.15,alkyl
+Isopropyl,*C(C)C,[CX4H]([CX4])([CX4]),-0.04,-0.15,0.04,-0.19,alkyl
+tert-Butyl,*C(C)(C)C,[CX4]([CX4])([CX4])([CX4]),-0.10,-0.20,-0.02,-0.18,alkyl
+Fluorine,*F,[FX1],0.34,0.06,0.45,-0.39,halogen
+Chlorine,*Cl,[ClX1],0.37,0.23,0.42,-0.19,halogen
+Bromine,*Br,[BrX1],0.39,0.23,0.45,-0.22,halogen
+Iodine,*I,[IX1],0.35,0.18,0.42,-0.24,halogen
+Hydroxyl,*O,[OX2H1],0.12,-0.37,0.33,-0.70,oxygen
+Methoxy,*OC,[OX2][CX4H3],0.12,-0.27,0.29,-0.56,oxygen
+Ethoxy,*OCC,[OX2][CX4H2][CX4],0.10,-0.24,0.26,-0.50,oxygen
+Phenoxy,*Oc1ccccc1,[OX2]c1ccccc1,0.25,-0.03,0.37,-0.40,oxygen
+Acetoxy,*OC(=O)C,[OX2][CX3](=[OX1])[CX4],0.39,0.31,0.42,-0.11,oxygen
+Amino,*N,[NX3H2],-0.16,-0.66,0.08,-0.74,nitrogen
+Dimethylamino,*N(C)C,[NX3]([CX4])([CX4]),-0.16,-0.83,0.15,-0.98,nitrogen
+Diethylamino,*N(CC)CC,[NX3]([CX4][CX4])([CX4][CX4]),-0.23,-0.72,0.01,-0.73,nitrogen
+Nitro,*[N+](=O)[O-],[$([NX3](=O)=O)],0.71,0.78,0.65,0.13,nitrogen
+Azido,*[N-][N+]#N,[$([NX1]=[NX2+]=[NX1-])],0.37,0.08,0.48,-0.40,nitrogen
+Cyano,*C#N,[CX2]#[NX1],0.56,0.66,0.51,0.15,nitrogen
+Isocyano,*[N+]#[C-],[NX2]#[CX1],0.48,0.49,0.47,0.02,nitrogen
+Amide,*C(=O)N,[CX3](=[OX1])[NX3],0.28,0.36,0.26,0.10,nitrogen
+Formyl,*C=O,[CX3H1]=[OX1],0.35,0.42,0.33,0.09,carbonyl
+Acetyl,*C(=O)C,[CX3](=[OX1])[CX4],0.38,0.50,0.33,0.17,carbonyl
+Carboxylic,*C(=O)O,[CX3](=[OX1])[OX2H1],0.37,0.45,0.34,0.11,carbonyl
+Ester,*C(=O)OC,[CX3](=[OX1])[OX2][CX4],0.37,0.45,0.34,0.11,carbonyl
+Carboxylate,*C(=O)[O-],[CX3](=[OX1])[OX1-],-0.10,0.00,-0.10,0.10,carbonyl
+Thiol,*S,[SX2H1],0.25,0.15,0.30,-0.15,sulfur
+Methylthio,*SC,[SX2][CX4H3],0.15,0.00,0.23,-0.23,sulfur
+Sulfonyl,*S(=O)(=O)C,[SX4](=[OX1])(=[OX1])[CX4],0.60,0.72,0.53,0.19,sulfur
+Trifluoromethylthio,*SC(F)(F)F,[SX2][CX4](F)(F)(F),0.40,0.50,0.36,0.14,sulfur
+Phenyl,*c1ccccc1,c1ccccc1,0.06,-0.01,0.12,-0.13,aromatic
+4-Nitrophenyl,*c1ccc([N+](=O)[O-])cc1,c1cc([$(N(=O)=O)])ccc1,0.25,0.26,0.26,0.00,aromatic
+4-Methoxyphenyl,*c1ccc(OC)cc1,c1cc([OX2][CX4])ccc1,0.05,-0.08,0.13,-0.21,aromatic
+4-Methylphenyl,*c1ccc(C)cc1,c1cc([CX4H3])ccc1,0.06,-0.03,0.12,-0.15,aromatic
+4-Chlorophenyl,*c1ccc(Cl)cc1,c1cc([ClX1])ccc1,0.15,0.12,0.18,-0.06,aromatic
+4-Fluorophenyl,*c1ccc(F)cc1,c1cc([FX1])ccc1,0.12,0.06,0.17,-0.11,aromatic
+4-Aminophenyl,*c1ccc(N)cc1,c1cc([NX3H2])ccc1,-0.16,-0.66,0.08,-0.74,aromatic
+4-Cyanophenyl,*c1ccc(C#N)cc1,c1cc([CX2]#N)ccc1,0.56,0.66,0.51,0.15,aromatic
+Trifluoromethyl,*C(F)(F)F,[CX4](F)(F)(F),0.43,0.54,0.38,0.16,haloalkyl
+Difluoromethyl,*C(F)F,[CX4H1](F)(F),0.29,0.32,0.29,0.03,haloalkyl
+Chloromethyl,*CCl,[CX4H2][ClX1],0.11,0.12,0.13,-0.01,haloalkyl
+Bromomethyl,*CBr,[CX4H2][BrX1],0.12,0.14,0.14,0.00,haloalkyl
+Trichloromethyl,*C(Cl)(Cl)Cl,[CX4](Cl)(Cl)(Cl),0.40,0.46,0.38,0.09,haloalkyl
+Vinyl,*C=C,[CX3]=[CX3],0.06,-0.04,0.13,-0.17,unsaturated
+Ethynyl,*C#C,[CX2]#[CX2],0.21,0.23,0.22,0.01,unsaturated
+Styryl,*C=Cc1ccccc1,[CX3]=[CX3]c1ccccc1,0.03,-0.07,0.10,-0.17,unsaturated
+Phenylethynyl,*C#Cc1ccccc1,[CX2]#[CX2]c1ccccc1,0.14,0.16,0.15,0.01,unsaturated
+2-Furyl,*c1ccco1,c1ccc[oX2]1,0.06,0.02,0.10,-0.08,heterocycle
+2-Thienyl,*c1cccs1,c1ccc[sX2]1,0.09,0.05,0.13,-0.08,heterocycle
+2-Pyridyl,*c1ccccn1,c1cccc[nX2]1,0.33,0.17,0.40,-0.23,heterocycle
+4-Pyridyl,*c1ccncc1,c1cc[nX2]cc1,0.27,0.44,0.21,0.23,heterocycle
+1-Pyrrolyl,*n1cccc1,[nX3]1cccc1,0.47,0.37,0.50,-0.13,heterocycle
+BF2,*B(F)F,[BX3](F)(F),0.32,0.48,0.26,0.22,boron
+Borate,*B(O)(O),[BX3]([OX2])([OX2]),-0.01,0.12,-0.03,0.15,boron
+Trimethylsilyl,*[Si](C)(C)C,[SiX4]([CX4])([CX4])([CX4]),-0.04,-0.07,0.01,-0.08,silicon
+Phosphonate,*P(=O)(O)O,[PX4](=[OX1])([OX2])([OX2]),0.36,0.42,0.34,0.08,phosphorus
+Generic_Alkyl,,[CX4H3],-0.06,-0.15,0.00,-0.15,generic
+Generic_Alkoxy,,[OX2][CX4],0.10,-0.27,0.27,-0.54,generic
+Generic_Alkylthio,,[SX2][CX4],0.15,0.00,0.23,-0.23,generic
