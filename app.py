@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # 导入 Agent
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from src.agent.core import app as agent_app
+from src.agent.core import AgentBuilder
 
 # 导入分子图像工具
 try:
@@ -58,6 +58,9 @@ def chat_stream(message: str, history: list, image=None):
     response_parts = []
     
     try:
+        # 获取当前模型的 Agent
+        agent_app = AgentBuilder.get_app()
+        
         for event in agent_app.stream({"messages": messages}, stream_mode="values"):
             last_message = event["messages"][-1]
             
@@ -221,15 +224,22 @@ def create_ui():
         )
         clear_btn.click(lambda: (None, [], None), None, [msg, chatbot, image_input])
         
-        # 模型切换处理
-        def on_model_change(new_model):
+        # 模型切换处理 - 立即生效
+        def on_model_change(new_model, history):
             os.environ["CURRENT_MODEL"] = new_model
-            return f"✅ 已切换到 {new_model}，重启应用后生效"
+            try:
+                AgentBuilder.get_app(new_model)  # 重新构建 Agent
+                # 添加系统消息
+                history = history + [{"role": "assistant", "content": f"✅ 已切换到模型: **{new_model}**"}]
+                return history
+            except Exception as e:
+                history = history + [{"role": "assistant", "content": f"❌ 切换失败: {str(e)}"}]
+                return history
         
         model_dropdown.change(
             on_model_change, 
-            [model_dropdown], 
-            [gr.Textbox(visible=False)]  # 静默处理
+            [model_dropdown, chatbot], 
+            [chatbot]
         )
     
     return demo
