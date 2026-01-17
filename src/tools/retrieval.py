@@ -442,7 +442,7 @@ def query_bodi_database(query_text: str, filter_type: str = "general") -> str:
 ## 分子: {mol['id']}
 
 ### 基本信息
-- **SMILES**: `{mol.get('smiles', 'N/A')[:80]}...`
+- **SMILES**: `{mol.get('smiles', 'N/A')}`
 - **是否BODIPY**: {mol.get('is_bodipy', False)}
 
 ### 还原电位
@@ -452,7 +452,6 @@ def query_bodi_database(query_text: str, filter_type: str = "general") -> str:
 ### 中性态几何
 - **Meso 二面角**: {neu_geom.get('meso_dihedral', 'N/A')}°
 - **最大共轭长度**: {neu_geom.get('conjugation_lengths', {}).get('max_conjugation_length', 'N/A')}
-- **β位二面角**: {neu_geom.get('beta_dihedrals', 'N/A')}
 
 ### 还原态几何
 - **Meso 二面角**: {red_geom.get('meso_dihedral', 'N/A')}°

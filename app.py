@@ -1,6 +1,6 @@
 """
 FluoroLogic Agent 对话界面
-直接调用 src/agent/core.py 中的 Agent
+ChatGPT 风格布局：全屏聊天 + 右侧工具栏
 """
 
 import gradio as gr
@@ -14,44 +14,47 @@ load_dotenv()
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-# 导入 Agent (来自 src/agent/core.py)
+# 导入 Agent
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from src.agent.core import app as agent_app
 
-# 系统提示
-SYSTEM_PROMPT = """你是 BodiMechanist，一个专注于 BODIPY 分子电化学性质分析的 AI 专家。
+# 导入分子图像工具
+try:
+    from src.tools.molecule_image import image_to_smiles
+    IMAGE_TOOLS_AVAILABLE = True
+except ImportError:
+    IMAGE_TOOLS_AVAILABLE = False
 
-你可以使用以下工具:
-1. **check_hammett**: 查询取代基的 Hammett σ 值，分析电子效应
-2. **analyze_structural_reorganization**: 分析分子还原时的结构重组
-3. **query_bodi_database**: 从数据库检索分子信息
-4. **find_activity_cliff**: 找到结构相似但电位差异大的对照案例
-5. **query_by_mechanism**: 按机理类型检索分子
-
-分析电位时，请考虑:
-- 电子效应 (Hammett σ): 吸电子基团使电位更正，供电子基团使电位更负
-- 空间效应: Meso 二面角影响共轭程度
-- 结构重组: 还原时的构象弛豫可能额外稳定阴离子
-
-请用中文回答，并给出科学推理过程。
-"""
+# 导入系统提示
+from src.agent.prompts import BODIMECHANIST_SYSTEM_PROMPT as SYSTEM_PROMPT
 
 
-def chat_stream(message: str, history: list):
-    """与 Agent 对话 - 流式输出"""
-    # 构建消息历史
-    messages = [SystemMessage(content=SYSTEM_PROMPT)]
+def process_image(image_path: str) -> str:
+    if not image_path or not IMAGE_TOOLS_AVAILABLE:
+        return ""
+    smiles, method = image_to_smiles(image_path)
+    if smiles:
+        return f"[识别到分子: {smiles} (使用 {method})]"
+    return ""
+
+
+def chat_stream(message: str, history: list, image=None):
+    """流式对话"""
+    image_info = ""
+    if image:
+        image_info = process_image(image)
+        if image_info:
+            message = f"{image_info}\n\n用户问题: {message}"
     
+    messages = [SystemMessage(content=SYSTEM_PROMPT)]
     for h in history:
         if isinstance(h, dict):
             if h.get("role") == "user":
                 messages.append(HumanMessage(content=h.get("content", "")))
             elif h.get("role") == "assistant":
                 messages.append(AIMessage(content=h.get("content", "")))
-    
     messages.append(HumanMessage(content=message))
     
-    # 流式输出
     response_parts = []
     
     try:
@@ -59,135 +62,175 @@ def chat_stream(message: str, history: list):
             last_message = event["messages"][-1]
             
             if last_message.type == "ai":
-                # 工具调用信息
                 if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
                     for tc in last_message.tool_calls:
-                        tool_info = f"🔧 **调用工具**: `{tc['name']}`"
-                        if tc.get('args'):
-                            args_preview = str(tc['args'])[:100]
-                            tool_info += f"\n   参数: `{args_preview}`"
+                        tool_info = f"🔧 `{tc['name']}`"
                         response_parts.append(tool_info)
-                        yield "\n".join(response_parts) + "\n\n⏳ 执行中..."
+                        yield " → ".join(response_parts) + " ⏳"
                 
-                # AI 回复
                 if last_message.content:
-                    response_parts.append(f"\n---\n\n{last_message.content}")
-                    yield "\n".join(response_parts)
+                    response_parts.append(f"\n\n{last_message.content}")
+                    yield "".join(response_parts)
                     
             elif last_message.type == "tool":
-                # 工具返回结果
-                tool_result = last_message.content[:200] + "..." if len(last_message.content) > 200 else last_message.content
-                response_parts.append(f"📋 **工具返回**: {tool_result}")
-                yield "\n".join(response_parts) + "\n\n⏳ 分析中..."
+                pass  # 工具返回不显示，减少噪音
                 
     except Exception as e:
         yield f"❌ 错误: {str(e)}"
 
 
-def respond(message, chat_history):
-    """处理用户输入"""
-    if not message.strip():
-        return "", chat_history
-    
-    # 添加用户消息
-    chat_history.append({"role": "user", "content": message})
-    
-    # 流式获取回复
-    bot_response = ""
-    for partial in chat_stream(message, chat_history[:-1]):
-        bot_response = partial
-    
-    chat_history.append({"role": "assistant", "content": bot_response})
-    return "", chat_history
+# 加载 CSS 样式
+CSS_FILE = os.path.join(os.path.dirname(__file__), "static", "style.css")
+if os.path.exists(CSS_FILE):
+    with open(CSS_FILE, "r", encoding="utf-8") as f:
+        CUSTOM_CSS = f.read()
+else:
+    CUSTOM_CSS = ""
 
 
 def create_ui():
-    """创建 Gradio 界面"""
+    """创建 ChatGPT 风格界面"""
     
     model_name = os.getenv("CURRENT_MODEL", "qwen_dev")
     
-    with gr.Blocks(title="FluoroLogic - BODIPY Agent") as demo:
-        
-        gr.Markdown(f"""
-        # 🔬 FluoroLogic
-        ## BODIPY 分子还原电位预测 Agent
-        
-        **模型**: `{model_name}` | **工具**: 电子效应 · 结构重组 · 数据库检索 · Activity Cliff · 机理检索
-        
-        ---
-        
-        直接与 Agent 对话，Agent 会自动调用合适的工具进行分析。工具调用过程实时显示。
-        """)
-        
-        chatbot = gr.Chatbot(height=500)
-        
-        msg = gr.Textbox(
-            label="消息",
-            placeholder="输入你的问题...",
-            lines=2
-        )
-        
-        with gr.Row():
-            submit_btn = gr.Button("发送", variant="primary")
-            clear_btn = gr.Button("清空对话")
-        
-        # 丰富的示例问题
-        gr.Markdown("### 💡 示例问题")
-        
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("**基础查询**")
-                gr.Examples(
-                    examples=[
-                        ["BE_24NO2 的还原电位是多少？"],
-                        ["BE_OMe 的电位有什么特点？"],
-                    ],
-                    inputs=msg,
-                    label=""
-                )
-            
-            with gr.Column():
-                gr.Markdown("**电子效应分析**")
-                gr.Examples(
-                    examples=[
-                        ["分析三氟甲基 (-CF3) 的电子效应"],
-                        ["硝基和甲氧基哪个更吸电子？"],
-                    ],
-                    inputs=msg,
-                    label=""
-                )
-            
-            with gr.Column():
-                gr.Markdown("**对比分析**")
-                gr.Examples(
-                    examples=[
-                        ["为什么 BE_OMe 电位比 BE_CN 更负？"],
-                        ["找一个和 BE_Br 结构相似但电位不同的分子"],
-                    ],
-                    inputs=msg,
-                    label=""
-                )
-            
-            with gr.Column():
-                gr.Markdown("**机理检索**")
-                gr.Examples(
-                    examples=[
-                        ["找出所有 flattening 类型的分子"],
-                        ["有哪些分子的 Meso 二面角很大？"],
-                    ],
-                    inputs=msg,
-                    label=""
-                )
-        
-        # 事件绑定
-        msg.submit(respond, [msg, chatbot], [msg, chatbot])
-        submit_btn.click(respond, [msg, chatbot], [msg, chatbot])
-        clear_btn.click(lambda: (None, []), None, [msg, chatbot])
+    # 使用 Base 主题并指定标准字体
+    custom_theme = gr.themes.Base(
+        font=["Arial", "Helvetica", "sans-serif"],
+        font_mono=["Consolas", "Monaco", "monospace"]
+    )
+    
+    with gr.Blocks(title="FluoroLogic", theme=custom_theme) as demo:
         
         gr.Markdown("""
-        ---
-        **FluoroLogic** | 基于 LangGraph Agent | 工具调用实时显示
+        # 🔬 FluoroLogic
+        **BODIPY 分子电位预测 Agent**
         """)
+        
+        with gr.Row():
+            # ========== 左侧：聊天区域 ==========
+            with gr.Column(scale=3):
+                chatbot = gr.Chatbot(
+                    height=800,
+                    show_label=False,
+                    container=True
+                )
+            
+            # ========== 右侧：工具栏 ==========
+            with gr.Column(scale=1):
+                gr.Markdown("### 💬 发送消息")
+                
+                msg = gr.Textbox(
+                    placeholder="输入你的问题...",
+                    lines=3,
+                    show_label=False
+                )
+                
+                with gr.Row():
+                    submit_btn = gr.Button("发送", variant="primary", size="lg")
+                    clear_btn = gr.Button("清空", size="lg")
+                
+                gr.Markdown("---")
+                gr.Markdown("### 📷 上传分子图片")
+                
+                image_input = gr.Image(
+                    type="filepath",
+                    height=120,
+                    show_label=False
+                )
+                
+                gr.Markdown("---")
+                gr.Markdown("### 💡 快捷问题")
+                
+                # 示例按钮 - 点击自动填入
+                examples = [
+                    "BE_24NO2 的电位是多少？",
+                    "分析 -CF3 的电子效应",
+                    "对比 BE_OMe 和 BE_CN",
+                    "找 flattening 类型分子",
+                    "绘制咔唑 c1ccc2c(c1)[nH]c1ccccc12"
+                ]
+                
+                for ex in examples:
+                    gr.Button(ex, size="sm").click(
+                        lambda x=ex: x, None, msg
+                    )
+                
+                gr.Markdown("---")
+                gr.Markdown("### ⚙️ 系统设置")
+                
+                # 模型选择下拉框
+                available_models = [
+                    ("Qwen Plus (开发)", "qwen_dev"),
+                    ("Qwen Max (高级)", "qwen_pro"),
+                    ("DeepSeek", "deepseek"),
+                    ("Gemini 3 Pro", "gemini"),
+                    ("GPT-4o", "gpt4")
+                ]
+                
+                model_dropdown = gr.Dropdown(
+                    choices=available_models,
+                    value=model_name,
+                    label="选择模型",
+                    interactive=True
+                )
+                
+                gr.Markdown(f"""
+                - **工具数**: 7 个
+                - **图像识别**: {'✓' if IMAGE_TOOLS_AVAILABLE else '✗'}
+                """)
+        
+        # ========== 事件处理 ==========
+        def user_input(message, history, image):
+            if not message.strip() and image is None:
+                return "", history, None
+            
+            user_msg = message
+            if image:
+                user_msg = f"[📷 上传图片]\n{message}"
+            
+            history = history + [{"role": "user", "content": user_msg}]
+            return "", history, None
+        
+        def bot_response(history, image):
+            if not history:
+                return history
+            
+            last_user_msg = ""
+            for msg in reversed(history):
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    last_user_msg = msg.get("content", "")
+                    break
+            
+            if not last_user_msg:
+                return history
+            
+            clean_msg = str(last_user_msg).replace("[📷 上传图片]\n", "")
+            
+            history = history + [{"role": "assistant", "content": ""}]
+            
+            for partial in chat_stream(clean_msg, history[:-1], image):
+                history[-1] = {"role": "assistant", "content": partial}
+                yield history
+        
+        # 绑定事件
+        msg.submit(user_input, [msg, chatbot, image_input], [msg, chatbot, image_input]).then(
+            bot_response, [chatbot, image_input], chatbot
+        )
+        submit_btn.click(user_input, [msg, chatbot, image_input], [msg, chatbot, image_input]).then(
+            bot_response, [chatbot, image_input], chatbot
+        )
+        clear_btn.click(lambda: (None, [], None), None, [msg, chatbot, image_input])
+        
+        # 模型切换处理
+        def on_model_change(new_model):
+            os.environ["CURRENT_MODEL"] = new_model
+            return f"✅ 已切换到 {new_model}，重启应用后生效"
+        
+        model_dropdown.change(
+            on_model_change, 
+            [model_dropdown], 
+            [gr.Textbox(visible=False)]  # 静默处理
+        )
     
     return demo
 
@@ -197,15 +240,9 @@ if __name__ == "__main__":
     os.environ["no_proxy"] = "localhost,127.0.0.1"
     
     print("=" * 50)
-    print("FluoroLogic - BODIPY Agent")
+    print("FluoroLogic - ChatGPT 风格界面")
     print("=" * 50)
     print(f"模型: {os.getenv('CURRENT_MODEL', 'qwen_dev')}")
-    print("工具: check_hammett, analyze_structural_reorganization,")
-    print("      query_bodi_database, find_activity_cliff, query_by_mechanism")
     
     demo = create_ui()
-    demo.launch(
-        server_name="127.0.0.1",
-        server_port=None,  # 自动找可用端口
-        share=False
-    )
+    demo.launch(server_name="127.0.0.1", server_port=None, share=False)

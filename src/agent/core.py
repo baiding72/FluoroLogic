@@ -11,6 +11,7 @@ from src.tools.electronic import check_hammett
 from src.tools.retrieval import query_bodi_database, find_activity_cliff, query_by_mechanism
 from src.agent.model_factory import ModelFactory
 from src.tools.structure import analyze_structural_reorganization
+from src.tools.molecule_image import draw_molecule, compare_molecule_structures
 
 # 1. 定义状态 (State)
 # LangGraph 需要定义一个状态对象，这里我们只存储消息列表
@@ -22,15 +23,17 @@ class AgentState(TypedDict):
 # 建议先用 API (qwen_pro) 测试，因为 Ollama 可能第一次调用 tool 会失败
 llm = ModelFactory.get_model(os.getenv("CURRENT_MODEL", "qwen_dev"), temperature=0)
 
-# 包含新的检索工具
+# 包含新的检索工具和图像工具
 tools = [
     check_hammett, 
     analyze_structural_reorganization, 
     query_bodi_database,
-    find_activity_cliff,      # 新增: Activity Cliff 检测
-    query_by_mechanism        # 新增: 按机理检索
+    find_activity_cliff,
+    query_by_mechanism,
+    draw_molecule,                  # 新增: 绘制分子结构
+    compare_molecule_structures     # 新增: 对比分子结构
 ]
-llm_with_tools = llm.bind_tools(tools) # 这一步是关键，把工具绑定到模型
+llm_with_tools = llm.bind_tools(tools)
 
 # 3. 定义节点 (Nodes)
 def reasoner_node(state: AgentState):
@@ -51,8 +54,9 @@ workflow.add_edge(START, "agent")
 workflow.add_conditional_edges("agent", tools_condition)
 workflow.add_edge("tools", "agent") # 工具执行完，结果返回给 agent 继续思考
 
-# 编译图
+# 编译图 - 设置递归限制防止无限循环
 app = workflow.compile()
+app.recursion_limit = 50
 
 # 5. 运行测试函数
 def run_interactive():
